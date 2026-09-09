@@ -1,0 +1,17 @@
+[project]
+name = "playlist-sorter"
+version = "0.1.0"
+description = "Sort a YouTube Music playlist into vibe-based playlists using Gemini, falling back to Claude"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "ytmusicapi>=1.10",
+    "google-genai>=0.8",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+]
+
+[tool.uv]
+package = false

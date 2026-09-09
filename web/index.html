@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playlist Sorter</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <h1>Playlist Sorter</h1>
+  <div id="providerBar" class="provider-bar"></div>
+</header>
+
+<nav class="steps">
+  <button class="step" data-screen="connect">1 · Connect</button>
+  <button class="step" data-screen="configure">2 · Configure</button>
+  <button class="step" data-screen="progress">3 · Sort</button>
+  <button class="step" data-screen="review">4 · Review</button>
+</nav>
+
+<main>
+
+  <!-- ─────────────── 1. CONNECT ─────────────── -->
+  <section id="connect" class="screen">
+    <h2>Connect YouTube Music</h2>
+    <p class="hint">
+      This app talks to YouTube Music using your browser session. Credentials stay
+      on this Mac in <code>browser.json</code> and last about two years.
+    </p>
+
+    <details class="how">
+      <summary>How to get your headers</summary>
+      <ol>
+        <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> while logged in.</li>
+        <li>Open DevTools (<kbd>⌥⌘I</kbd>) and go to the <strong>Network</strong> tab.</li>
+        <li>Type <code>/browse</code> in the filter box, then click around the page to make a request appear.</li>
+        <li>Click a <strong>POST</strong> request → <strong>Headers</strong> → copy everything under <strong>Request Headers</strong>.</li>
+        <li>Paste it below. The <code>Cookie</code> line must be included.</li>
+      </ol>
+    </details>
+
+    <textarea id="headersInput" rows="10"
+              placeholder="Paste your full request headers here..."></textarea>
+    <div class="row">
+      <button id="connectBtn" class="primary">Connect</button>
+      <span id="connectStatus" class="status"></span>
+    </div>
+  </section>
+
+  <!-- ─────────────── 2. CONFIGURE ─────────────── -->
+  <section id="configure" class="screen">
+    <h2>What are we sorting?</h2>
+
+    <label class="field">
+      <span>Source playlist — the one being sorted</span>
+      <select id="sourceSelect"></select>
+    </label>
+
+    <h3>Destination playlists</h3>
+    <p class="hint">
+      Tick the playlists songs should be routed into, then describe each one in a
+      sentence. <strong>These descriptions are the single biggest accuracy lever</strong> —
+      "Slow Down" means nothing on its own, but "mellow, low-tempo songs for winding
+      down at the end of the day" gives the model something real to match against.
+    </p>
+
+    <div id="bucketList" class="bucket-list"></div>
+
+    <div class="row">
+      <button id="startBtn" class="primary">Start sorting</button>
+      <span id="configStatus" class="status"></span>
+    </div>
+  </section>
+
+  <!-- ─────────────── 3. PROGRESS ─────────────── -->
+  <section id="progress" class="screen">
+    <h2>Sorting</h2>
+
+    <div class="progress-wrap">
+      <div id="progressBar" class="progress-bar"><div></div></div>
+      <div id="progressLabel" class="progress-label">Starting…</div>
+    </div>
+
+    <div id="phaseMsg" class="phase-msg"></div>
+    <div id="providerDetail" class="provider-detail"></div>
+    <div id="eventLog" class="event-log"></div>
+
+    <div class="row">
+      <button id="pauseBtn">Pause</button>
+      <button id="resumeBtn" class="hidden">Resume</button>
+      <button id="toReviewBtn" class="primary hidden">Go to review</button>
+    </div>
+  </section>
+
+  <!-- ─────────────── 4. REVIEW ─────────────── -->
+  <section id="review" class="screen">
+    <h2>Review before anything is written</h2>
+    <div id="reviewStats" class="stats"></div>
+
+    <div class="row filters">
+      <label><input type="checkbox" id="lowOnly"> Show only low-confidence</label>
+      <button id="refreshReview">Refresh</button>
+    </div>
+
+    <div id="reviewBody"></div>
+
+    <div class="apply-bar">
+      <div>
+        <strong>Nothing has been written to YouTube Music yet.</strong>
+        <div class="hint">Applying only adds songs. Your source playlist is never modified,
+        and a backup of every destination is saved to <code>backups/</code> first.</div>
+      </div>
+      <button id="applyBtn" class="primary danger">Apply to YouTube Music</button>
+    </div>
+    <div id="applyStatus" class="status"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

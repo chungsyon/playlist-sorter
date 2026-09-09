@@ -1,0 +1,22 @@
+# Secrets — never commit these
+.env
+browser.json
+oauth.json
+
+# Local state
+data/
+backups/
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+
+# macOS / iCloud
+.DS_Store
+.icloud
