@@ -282,6 +282,14 @@ def review(job_id: str) -> dict:
     return manager.review_payload(state)
 
 
+@app.get("/api/jobs/{job_id}/summary")
+def summary(job_id: str) -> dict:
+    state = manager.get(job_id)
+    if not state:
+        raise HTTPException(404, "Unknown job.")
+    return manager.summary_payload(state)
+
+
 @app.post("/api/jobs/{job_id}/override")
 def override(job_id: str, body: OverrideBody) -> dict:
     state = manager.get(job_id)

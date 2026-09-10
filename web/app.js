@@ -14,6 +14,8 @@ const state = {
   connected: false,   // YouTube Music session is live
   ready: false,       // at least one classifier is configured
   reviewReady: false, // the job has produced classifications
+  applied: false,     // Apply has run, so there is a summary to show
+  summary: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,11 @@ function stepGate(name) {
       if (!state.connected) return 'Connect YouTube Music first.';
       if (!state.jobId) return 'Start a sort from Configure first.';
       if (!state.reviewReady) return 'Still sorting — this unlocks when it finishes.';
+      return null;
+    case 'summary':
+      if (!state.connected) return 'Connect YouTube Music first.';
+      if (!state.jobId) return 'Start a sort from Configure first.';
+      if (!state.applied) return 'Nothing applied yet — this unlocks after you press Apply.';
       return null;
     default:
       return null;
@@ -409,7 +416,10 @@ $('#startBtn').addEventListener('click', async () => {
       }),
     });
     state.jobId = job_id;
-    state.reviewReady = false;  // a fresh job re-locks Review until it produces results
+    // A fresh job re-locks the downstream screens until it produces results.
+    state.reviewReady = false;
+    state.applied = false;
+    state.summary = null;
     setStatus($('#configStatus'), '');
     show('progress');
     startPolling();
@@ -633,12 +643,142 @@ $('#applyBtn').addEventListener('click', async () => {
       if (['done', 'error', 'paused'].includes(job.phase)) {
         clearInterval(timer);
         $('#applyBtn').disabled = false;
+
+        // Even a partial or failed apply wrote something worth accounting for.
+        state.applied = true;
+        updateSteps();
+        await loadSummary();
+        if (job.phase === 'done') show('summary');
       }
     }, 1500);
   } catch (e) {
     setStatus($('#applyStatus'), e.message, 'bad');
     $('#applyBtn').disabled = false;
   }
+});
+
+// ---------------------------------------------------------------------------
+// 5. summary
+// ---------------------------------------------------------------------------
+
+$('#refreshSummary').addEventListener('click', loadSummary);
+
+async function loadSummary() {
+  if (!state.jobId) return;
+  $('#summaryBody').innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    state.summary = await api(`/api/jobs/${state.jobId}/summary`);
+  } catch (e) {
+    return setStatus($('#summaryStatus'), e.message, 'bad');
+  }
+  renderSummary();
+}
+
+function renderSummary() {
+  const data = state.summary;
+  if (!data) return;
+  const s = data.stats;
+
+  $('#summaryStats').innerHTML = [
+    stat(s.added, 'songs added'),
+    stat(s.playlists, 'playlists'),
+    stat(s.skipped, 'already there'),
+    stat(s.failed, 'failed'),
+    stat(s.unassigned, 'matched nothing'),
+  ].join('');
+
+  const groups = data.buckets.map((b) => {
+    if (!b.added) {
+      return `<div class="bucket-group">
+        <h4>${escape(b.name)} <span class="n">nothing added</span></h4>
+        <div class="empty">${b.skipped
+          ? `All ${b.skipped} matching songs were already in this playlist.`
+          : 'No songs were routed here.'}</div>
+      </div>`;
+    }
+
+    const rows = b.songs.map((r) => `
+      <tr>
+        <td>
+          <div class="song-title">${escape(r.title)}</div>
+          <div class="song-artist">${escape(r.artists)}</div>
+        </td>
+        <td class="conf">${r.confidence != null ? r.confidence.toFixed(2) : '—'}</td>
+        <td class="reason">${escape(r.reason)}${
+          r.overridden ? '<span class="by-hand">changed by hand</span>' : ''}</td>
+      </tr>`).join('');
+
+    return `
+      <div class="bucket-group">
+        <h4>${escape(b.name)}
+          <span class="n">${b.added} added</span>
+          ${b.skipped ? `<span class="n">${b.skipped} already there</span>` : ''}
+        </h4>
+        ${b.description ? `<div class="hint">${escape(b.description)}</div>` : ''}
+        <table>
+          <thead><tr><th>Song</th><th>Conf</th><th>Why</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  });
+
+  $('#summaryBody').innerHTML = groups.join('') ||
+    '<div class="empty">Nothing was written.</div>';
+
+  $('#summaryBackup').textContent = data.backup_path
+    ? `Backup of every destination, taken before writing: ${data.backup_path}`
+    : '';
+}
+
+/** Plain-text receipt. Generated in the browser so it works offline. */
+function summaryMarkdown(data) {
+  const s = data.stats;
+  const out = [
+    `# Playlist Sorter — ${data.source_name || 'sort'}`,
+    '',
+    `- Songs added: ${s.added}`,
+    `- Playlists written to: ${s.playlists}`,
+    `- Already present, skipped: ${s.skipped}`,
+    `- Failed writes: ${s.failed}`,
+    `- Matched no playlist: ${s.unassigned}`,
+    `- Songs classified: ${s.classified}`,
+  ];
+  if (data.backup_path) out.push(`- Backup: ${data.backup_path}`);
+  out.push('');
+
+  for (const b of data.buckets) {
+    out.push(`## ${b.name} — ${b.added} added${b.skipped ? `, ${b.skipped} already there` : ''}`);
+    if (b.description) out.push(`_${b.description}_`);
+    out.push('');
+    if (!b.songs.length) {
+      out.push('_Nothing added._', '');
+      continue;
+    }
+    for (const r of b.songs) {
+      const conf = r.confidence != null ? r.confidence.toFixed(2) : '—';
+      const hand = r.overridden ? ' [changed by hand]' : '';
+      out.push(`- **${r.title}** — ${r.artists} (${conf})${hand}${r.reason ? ` · ${r.reason}` : ''}`);
+    }
+    out.push('');
+  }
+  return out.join('\n');
+}
+
+$('#downloadSummary').addEventListener('click', () => {
+  if (!state.summary) return setStatus($('#summaryStatus'), 'Nothing to download yet.', 'bad');
+
+  const blob = new Blob([summaryMarkdown(state.summary)], {
+    type: 'text/markdown;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `playlist-sorter-${state.jobId}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatus($('#summaryStatus'), 'Downloaded.', 'ok');
 });
 
 // ---------------------------------------------------------------------------

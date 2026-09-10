@@ -252,6 +252,88 @@ class JobManager:
     # review + apply
     # ----------------------------------------------------------------------
 
+    def summary_payload(self, state: JobState) -> dict[str, Any]:
+        """What was actually written, after the fact.
+
+        Built from the `applied` table rather than from the assignments, so it
+        reports what genuinely reached YouTube Music — songs already present in
+        a destination were skipped and must not appear here as if we added them.
+        """
+        applied = db.get_applied(state.job_id)          # {(playlist_id, video_id)}
+        overrides = db.get_overrides(state.job_id)
+        tracks_by_id = {t.video_id: t for t in state.tracks}
+
+        written: dict[str, list[str]] = {}
+        for playlist_id, video_id in applied:
+            written.setdefault(playlist_id, []).append(video_id)
+
+        # What we intended, so "already there" can be separated from "failed".
+        planned: dict[str, set[str]] = {}
+        by_name = {b.name: b for b in state.buckets}
+        for vid, assignment in state.assignments.items():
+            for name in overrides.get(vid, assignment.playlists):
+                bucket = by_name.get(name)
+                if bucket:
+                    planned.setdefault(bucket.playlist_id, set()).add(vid)
+
+        failed = set(state.failed_writes)
+        buckets: list[dict[str, Any]] = []
+        total_added = total_skipped = 0
+
+        for bucket in state.buckets:
+            ids = written.get(bucket.playlist_id, [])
+            songs = []
+            for vid in ids:
+                track = tracks_by_id.get(vid)
+                assignment = state.assignments.get(vid)
+                songs.append({
+                    "video_id": vid,
+                    "title": track.title if track else vid,
+                    "artists": track.artists if track else "",
+                    "confidence": round(assignment.confidence, 2) if assignment else None,
+                    "reason": assignment.reason if assignment else "",
+                    "overridden": vid in overrides,
+                })
+            songs.sort(key=lambda s: (s["artists"].lower(), s["title"].lower()))
+
+            intended = planned.get(bucket.playlist_id, set())
+            skipped = len(intended) - len(ids) - len(intended & failed)
+
+            total_added += len(ids)
+            total_skipped += max(0, skipped)
+
+            buckets.append({
+                "playlist_id": bucket.playlist_id,
+                "name": bucket.name,
+                "description": bucket.description,
+                "added": len(ids),
+                "skipped": max(0, skipped),
+                "songs": songs,
+            })
+
+        buckets.sort(key=lambda b: -b["added"])
+
+        unassigned = sum(
+            1 for vid, a in state.assignments.items()
+            if not overrides.get(vid, a.playlists)
+        )
+
+        return {
+            "job_id": state.job_id,
+            "source_name": state.source_name,
+            "phase": state.phase,
+            "buckets": buckets,
+            "backup_path": state.backup_path,
+            "stats": {
+                "added": total_added,
+                "playlists": sum(1 for b in buckets if b["added"]),
+                "skipped": total_skipped,
+                "failed": len(state.failed_writes),
+                "unassigned": unassigned,
+                "classified": len(state.assignments),
+            },
+        }
+
     def review_payload(self, state: JobState) -> dict[str, Any]:
         """Everything the review screen needs, grouped by destination playlist."""
         overrides = db.get_overrides(state.job_id)

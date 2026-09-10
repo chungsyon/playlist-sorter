@@ -54,6 +54,13 @@
         <rect x="3.25" y="7" width="9.5" height="6.25" rx="1.5"/>
       </svg>
     </button>
+    <button class="step" data-screen="summary">
+      <span class="step-n">05</span><span class="step-l">Summary</span>
+      <svg class="step-lock" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4.75 7V5.25a3.25 3.25 0 0 1 6.5 0V7"/>
+        <rect x="3.25" y="7" width="9.5" height="6.25" rx="1.5"/>
+      </svg>
+    </button>
     <span id="navHint" class="nav-hint" role="status"></span>
   </div>
 </nav>
@@ -374,6 +381,37 @@
       <button id="applyBtn" class="primary danger">Apply to YouTube Music</button>
     </div>
     <div id="applyStatus" class="status"></div>
+  </section>
+
+  <!-- ================= 5. SUMMARY ================= -->
+  <section id="summary" class="screen">
+
+    <div class="screen-head">
+      <p class="eyebrow">Step 05</p>
+      <h2>What went where</h2>
+      <p class="lede">
+        Everything actually written to YouTube Music, taken from the write log
+        rather than the plan — songs already present in a destination were
+        skipped, and don't appear here.
+      </p>
+    </div>
+
+    <div id="summaryStats" class="stats"></div>
+
+    <div class="row filters">
+      <button id="downloadSummary" class="primary">
+        Download summary
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 3v7M5 7.5 8 10.5l3-3M3 12.5h10"/>
+        </svg>
+      </button>
+      <button id="refreshSummary">Refresh</button>
+      <span id="summaryStatus" class="status"></span>
+    </div>
+
+    <div id="summaryBody"></div>
+
+    <p id="summaryBackup" class="hint"></p>
   </section>
 
 </main>
