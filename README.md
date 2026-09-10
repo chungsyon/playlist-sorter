@@ -12,8 +12,21 @@ See [PLAN.md](PLAN.md) for the architecture and the research behind it.
 
 ### 1. Install
 
+This project lives in iCloud Drive, so the virtualenv must **not** live beside it —
+iCloud evicts files it thinks are cold, and an evicted venv makes every `import`
+block on a network download. The symptom is `uv run` hanging at 0% CPU forever.
+
 ```bash
+export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/playlist-sorter"
 uv sync
+ln -sfn "$HOME/.venvs/playlist-sorter" .venv   # so plain `uv run` finds it
+```
+
+The symlink means you only need the export when re-running `uv sync`; everyday
+`uv run ...` works without it. If it ever hangs again, check for evicted files:
+
+```bash
+find .venv/ -type f -print0 | xargs -0 ls -lO | grep -c dataless   # want 0
 ```
 
 ### 2. Fill in `.env`

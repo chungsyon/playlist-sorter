@@ -12,7 +12,7 @@ backups/
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+.venv
 venv/
 .uv/
 *.egg-info/
