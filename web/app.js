@@ -9,6 +9,8 @@ const state = {
   poll: null,
   review: null,
   lowOnly: false,
+  oauth: null,      // { device_code, interval, timer, deadline }
+  hasOauthClient: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -63,14 +65,190 @@ async function refreshStatus() {
     pill('Gemini', s.gemini.configured, s.gemini.configured ? s.gemini.model : 'no key'),
     pill('Claude', s.claude.configured, s.claude.configured ? s.claude.model : 'unavailable'),
     pill('Last.fm', s.lastfm.configured, s.lastfm.configured ? 'tags on' : 'optional'),
-    pill('YouTube Music', s.ytmusic.configured, s.ytmusic.configured ? '' : 'not connected'),
+    pill('YouTube Music', s.ytmusic.configured,
+         s.ytmusic.configured ? (s.ytmusic.mode || '') : 'not connected'),
   ].join('');
 
+  state.hasOauthClient = !!s.ytmusic?.oauth_client;
+  renderOauthPanel();
   return s;
 }
 
 // ---------------------------------------------------------------------------
-// 1. connect
+// setup
+// ---------------------------------------------------------------------------
+
+$('#setupBtn').addEventListener('click', async () => {
+  show('setup');
+  await loadSettings();
+});
+
+$('#oauthToSetup').addEventListener('click', async () => {
+  show('setup');
+  await loadSettings();
+});
+
+async function loadSettings() {
+  let s;
+  try {
+    s = await api('/api/settings');
+  } catch (e) {
+    return setStatus($('#setupStatus'), e.message, 'bad');
+  }
+
+  // Placeholders show what's already stored; empty inputs mean "leave alone".
+  $('#setGeminiKey').placeholder = s.gemini_api_key_set
+    ? `Saved (${s.gemini_api_key}) — type to replace` : 'Paste your key';
+  $('#setGeminiModel').value = s.gemini_model || '';
+  $('#setLastfmKey').placeholder = s.lastfm_api_key_set
+    ? `Saved (${s.lastfm_api_key}) — type to replace` : 'Paste your key';
+  $('#setOauthId').value = s.ytm_oauth_client_id || '';
+  $('#setOauthSecret').placeholder = s.ytm_oauth_client_set
+    ? `Saved (${s.ytm_oauth_client_secret}) — type to replace` : 'Paste the secret';
+
+  $('#claudeState').textContent = s.claude_available
+    ? 'The claude CLI is installed and on PATH — fallback is available.'
+    : 'The claude CLI was not found on PATH. Gemini alone will be used.';
+  $('#claudeState').className = `hint ${s.claude_available ? 'ok' : ''}`;
+
+  const st = await api('/api/status').catch(() => null);
+  const connected = !!st?.ytmusic?.configured;
+  $('#ytmState').textContent = connected
+    ? `Connected via ${st.ytmusic.mode}.` : 'Not connected yet.';
+  $('#disconnectBtn').classList.toggle('hidden', !connected);
+}
+
+$('#saveSettingsBtn').addEventListener('click', async () => {
+  const body = {
+    gemini_api_key: $('#setGeminiKey').value.trim() || null,
+    gemini_model: $('#setGeminiModel').value.trim() || null,
+    lastfm_api_key: $('#setLastfmKey').value.trim() || null,
+    ytm_oauth_client_id: $('#setOauthId').value.trim() || null,
+    ytm_oauth_client_secret: $('#setOauthSecret').value.trim() || null,
+  };
+
+  setStatus($('#setupStatus'), 'Saving…');
+  $('#saveSettingsBtn').disabled = true;
+  try {
+    const r = await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
+    setStatus($('#setupStatus'), r.message, 'ok');
+    $('#setGeminiKey').value = '';
+    $('#setLastfmKey').value = '';
+    $('#setOauthSecret').value = '';
+    await refreshStatus();
+    await loadSettings();
+  } catch (e) {
+    setStatus($('#setupStatus'), e.message, 'bad');
+  } finally {
+    $('#saveSettingsBtn').disabled = false;
+  }
+});
+
+$('#disconnectBtn').addEventListener('click', async () => {
+  if (!confirm('Sign out of YouTube Music on this machine?')) return;
+  try {
+    await api('/api/auth/ytm/disconnect', { method: 'POST' });
+    await refreshStatus();
+    await loadSettings();
+  } catch (e) {
+    setStatus($('#setupStatus'), e.message, 'bad');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 1. connect — google sign-in
+// ---------------------------------------------------------------------------
+
+$$('.method').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $$('.method').forEach((b) => b.classList.toggle('active', b === btn));
+    const oauth = btn.dataset.method === 'oauth';
+    $('#methodOauth').classList.toggle('hidden', !oauth);
+    $('#methodHeaders').classList.toggle('hidden', oauth);
+  });
+});
+
+/** Show whichever of the three OAuth states applies right now. */
+function renderOauthPanel() {
+  const waiting = !!state.oauth;
+  $('#oauthNoClient').classList.toggle('hidden', state.hasOauthClient);
+  $('#oauthIdle').classList.toggle('hidden', !state.hasOauthClient || waiting);
+  $('#oauthWaiting').classList.toggle('hidden', !waiting);
+}
+
+$('#oauthStartBtn').addEventListener('click', async () => {
+  setStatus($('#oauthStatus'), '');
+  $('#oauthStartBtn').disabled = true;
+  try {
+    const c = await api('/api/auth/ytm/oauth/start', { method: 'POST' });
+    $('#oauthCode').textContent = c.user_code;
+    $('#oauthLink').href = c.full_url;
+    state.oauth = {
+      device_code: c.device_code,
+      interval: Math.max(2, c.interval || 5),
+      deadline: Date.now() + (c.expires_in || 1800) * 1000,
+      timer: null,
+    };
+    renderOauthPanel();
+    window.open(c.full_url, '_blank', 'noreferrer');
+    scheduleOauthPoll();
+  } catch (e) {
+    setStatus($('#oauthStatus'), e.message, 'bad');
+  } finally {
+    $('#oauthStartBtn').disabled = false;
+  }
+});
+
+$('#oauthCancelBtn').addEventListener('click', () => {
+  cancelOauth();
+  setStatus($('#oauthStatus'), 'Sign-in cancelled.');
+});
+
+function cancelOauth() {
+  if (state.oauth?.timer) clearTimeout(state.oauth.timer);
+  state.oauth = null;
+  renderOauthPanel();
+}
+
+function scheduleOauthPoll() {
+  if (!state.oauth) return;
+  state.oauth.timer = setTimeout(pollOauth, state.oauth.interval * 1000);
+}
+
+async function pollOauth() {
+  if (!state.oauth) return;
+
+  if (Date.now() > state.oauth.deadline) {
+    cancelOauth();
+    return setStatus($('#oauthStatus'), 'That code expired. Start again.', 'bad');
+  }
+
+  let r;
+  try {
+    r = await api('/api/auth/ytm/oauth/poll', {
+      method: 'POST',
+      body: JSON.stringify({ device_code: state.oauth.device_code }),
+    });
+  } catch (e) {
+    cancelOauth();
+    return setStatus($('#oauthStatus'), e.message, 'bad');
+  }
+
+  if (r.status === 'pending') return scheduleOauthPoll();
+
+  cancelOauth();
+  setStatus($('#oauthStatus'), r.message, 'ok');
+  await refreshStatus();
+  try {
+    await loadPlaylists();
+    show('configure');
+  } catch (e) {
+    setStatus($('#oauthStatus'), e.message, 'bad');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1b. connect — pasted headers
 // ---------------------------------------------------------------------------
 
 $('#connectBtn').addEventListener('click', async () => {
@@ -411,6 +589,14 @@ function escape(str) {
 
 (async function boot() {
   const s = await refreshStatus();
+
+  // First run: no classifier configured at all, so keys come before anything else.
+  if (s && !s.ready) {
+    show('setup');
+    await loadSettings();
+    return;
+  }
+
   if (s?.ytmusic?.configured) {
     try {
       await loadPlaylists();

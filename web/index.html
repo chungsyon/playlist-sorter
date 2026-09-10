@@ -21,7 +21,10 @@
       </svg>
       <h1>Playlist Sorter</h1>
     </div>
-    <div id="providerBar" class="provider-bar"></div>
+    <div class="topbar-actions">
+      <div id="providerBar" class="provider-bar"></div>
+      <button id="setupBtn" class="ghost">Setup</button>
+    </div>
   </div>
 </header>
 
@@ -44,6 +47,103 @@
 
 <main>
 
+  <!-- ================= SETUP ================= -->
+  <section id="setup" class="screen">
+
+    <div class="screen-head">
+      <p class="eyebrow">Setup</p>
+      <h2>Keys and credentials</h2>
+      <p class="lede">
+        Saved to a <code>.env</code> file on this machine and never sent anywhere
+        except to the service each one belongs to. Existing values show masked —
+        leave a field blank to keep what's already there.
+      </p>
+    </div>
+
+    <div class="bento setup-grid">
+
+      <article class="card">
+        <h3>Gemini <span class="tag tag-req">Required</span></h3>
+        <p class="hint">
+          The classifier. Create a key at
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>
+          in a <strong>new project</strong>, and don't attach a billing account —
+          with no payment method on the project there is nothing to charge.
+        </p>
+        <label class="field">
+          <span class="field-label">API key</span>
+          <input type="password" id="setGeminiKey" autocomplete="off" placeholder="Paste your key">
+        </label>
+        <label class="field">
+          <span class="field-label">Model</span>
+          <input type="text" id="setGeminiModel" placeholder="gemini-3.5-flash-lite">
+          <span class="field-help">Flash-Lite has the highest free daily quota.</span>
+        </label>
+      </article>
+
+      <article class="card">
+        <h3>YouTube Music <span class="tag tag-req">Required</span></h3>
+        <p class="hint">
+          Google sign-in needs your own OAuth client. Free, a few minutes:
+          create a project in the
+          <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Cloud console</a>,
+          enable <strong>YouTube Data API v3</strong>, then create an OAuth client
+          of type <strong>TV and Limited Input devices</strong>.
+        </p>
+        <label class="field">
+          <span class="field-label">Client ID</span>
+          <input type="text" id="setOauthId" autocomplete="off" placeholder="…apps.googleusercontent.com">
+        </label>
+        <label class="field">
+          <span class="field-label">Client secret</span>
+          <input type="password" id="setOauthSecret" autocomplete="off" placeholder="Paste the secret">
+        </label>
+        <div class="card-inline">
+          <span id="ytmState" class="hint"></span>
+          <button id="disconnectBtn" class="hidden">Disconnect</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h3>Last.fm <span class="tag tag-opt">Optional</span></h3>
+        <p class="hint">
+          Pulls community tags like <em>chill</em> or <em>workout</em>, which
+          measurably help on songs the model doesn't know. Leave blank and
+          everything still works.
+          <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">Get a key</a> —
+          free and instant.
+        </p>
+        <label class="field">
+          <span class="field-label">API key</span>
+          <input type="password" id="setLastfmKey" autocomplete="off" placeholder="Paste your key">
+        </label>
+      </article>
+
+      <article class="card">
+        <h3>Claude fallback <span class="tag tag-opt">Optional</span></h3>
+        <p class="hint">
+          If the <code>claude</code> CLI is installed and signed in, the app
+          switches to it when Gemini hits its daily quota. Nothing to configure.
+        </p>
+        <p id="claudeState" class="hint"></p>
+        <p class="note note-yellow">
+          The CLI prefers <code>ANTHROPIC_API_KEY</code> if one is set in your
+          environment, which bills per-token API credits instead of your
+          subscription. Unset it if you want subscription billing.
+        </p>
+      </article>
+
+    </div>
+
+    <div class="row">
+      <button id="saveSettingsBtn" class="primary">
+        Save
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>
+      </button>
+      <span id="setupStatus" class="status"></span>
+    </div>
+  </section>
+
   <!-- ================= 1. CONNECT ================= -->
   <section id="connect" class="screen">
 
@@ -51,13 +151,75 @@
       <p class="eyebrow">Step 01</p>
       <h2>Connect YouTube Music</h2>
       <p class="lede">
-        This app signs in with your existing browser session. Nothing is uploaded —
-        credentials are written to <code>browser.json</code> on this Mac and stay
-        valid for about two years.
+        Sign in with Google, or paste browser headers if you'd rather not create
+        an OAuth client. Either way, credentials stay on this machine.
       </p>
     </div>
 
-    <div class="bento connect-grid">
+    <div class="method-toggle" role="tablist">
+      <button class="method active" data-method="oauth">Sign in with Google</button>
+      <button class="method" data-method="headers">Paste browser headers</button>
+    </div>
+
+    <!-- OAuth -->
+    <div id="methodOauth" class="bento connect-grid">
+
+      <article class="card">
+        <h3>How it works</h3>
+        <ol class="numbered">
+          <li>Press <strong>Start sign-in</strong> — you'll get a short code.</li>
+          <li>Open Google's device page and enter that code.</li>
+          <li>Approve access to your YouTube account.</li>
+          <li>Come back here. The app picks it up on its own.</li>
+        </ol>
+        <p class="note note-blue">
+          Your Google password never reaches this app. It receives a token you
+          can revoke at any time from your Google account's security settings.
+        </p>
+      </article>
+
+      <article class="card card-flush">
+        <div class="panel">
+
+          <div id="oauthNoClient" class="hidden">
+            <p class="note note-yellow">
+              No OAuth client configured yet. Add a client ID and secret on the
+              Setup screen first — it's free and takes a few minutes.
+            </p>
+            <button id="oauthToSetup" class="primary">Go to Setup</button>
+          </div>
+
+          <div id="oauthIdle" class="hidden">
+            <p class="panel-lede">
+              This opens Google's own sign-in page in a new tab. Nothing is
+              written to YouTube Music by signing in.
+            </p>
+            <button id="oauthStartBtn" class="primary">
+              Start sign-in
+              <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>
+            </button>
+          </div>
+
+          <div id="oauthWaiting" class="hidden">
+            <p class="field-label">Enter this code</p>
+            <div id="oauthCode" class="oauth-code">————</div>
+            <a id="oauthLink" class="btn-link" target="_blank" rel="noreferrer">
+              Open Google sign-in page
+              <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M6.5 3H3v10h10V9.5M9.5 2.5H13v3.5M13 3l-5 5"/>
+              </svg>
+            </a>
+            <p id="oauthWaitMsg" class="hint waiting">Waiting for you to finish…</p>
+            <button id="oauthCancelBtn">Cancel</button>
+          </div>
+
+          <span id="oauthStatus" class="status"></span>
+        </div>
+      </article>
+    </div>
+
+    <!-- Browser headers -->
+    <div id="methodHeaders" class="bento connect-grid hidden">
 
       <article class="card">
         <h3>Getting your headers</h3>
@@ -86,14 +248,11 @@
         <div class="row card-foot">
           <button id="connectBtn" class="primary">
             Connect
-            <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
-            </svg>
+            <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>
           </button>
           <span id="connectStatus" class="status"></span>
         </div>
       </article>
-
     </div>
   </section>
 
@@ -130,9 +289,7 @@
     <div class="row">
       <button id="startBtn" class="primary">
         Start sorting
-        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
-        </svg>
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>
       </button>
       <span id="configStatus" class="status"></span>
     </div>
@@ -164,9 +321,7 @@
       <button id="resumeBtn" class="hidden">Resume</button>
       <button id="toReviewBtn" class="primary hidden">
         Go to review
-        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
-        </svg>
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>
       </button>
     </div>
   </section>

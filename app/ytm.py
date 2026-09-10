@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import ytmusicapi
-from ytmusicapi import YTMusic
+from ytmusicapi import OAuthCredentials, YTMusic
+from ytmusicapi.auth.oauth import RefreshingToken
 
 from .config import settings
 from .models import Track
@@ -34,6 +35,10 @@ class NotAuthenticated(RuntimeError):
 
 class WriteFailed(RuntimeError):
     pass
+
+
+class OAuthPending(RuntimeError):
+    """The user has not finished the consent screen yet. Keep polling."""
 
 
 # Headers worth forwarding. Everything else is either irrelevant or actively
@@ -155,20 +160,117 @@ def parse_headers(raw: str) -> dict[str, str]:
     return headers
 
 
+# --------------------------------------------------------------------------
+# OAuth (the recommended path)
+#
+# ytmusicapi's own setup_oauth() blocks on input(), so the two halves of the
+# device flow are driven here instead: get_code() hands back a short user code,
+# and token_from_code() is polled until the user finishes consenting.
+#
+# This still talks to YouTube Music's internal endpoints, so there is no
+# Data API quota ceiling — the OAuth client only supplies the credentials.
+# --------------------------------------------------------------------------
+
+def oauth_credentials() -> OAuthCredentials:
+    if not settings.has_oauth_client:
+        raise NotAuthenticated(
+            "No OAuth client configured. Add a client ID and secret on the "
+            "Setup screen — see the README for how to create one."
+        )
+    return OAuthCredentials(
+        client_id=settings.ytm_oauth_client_id,
+        client_secret=settings.ytm_oauth_client_secret,
+    )
+
+
+def oauth_start() -> dict[str, Any]:
+    """Begin the device flow. Returns the code and URL to show the user."""
+    code = oauth_credentials().get_code()
+    return {
+        "device_code": code["device_code"],
+        "user_code": code["user_code"],
+        "verification_url": code["verification_url"],
+        "full_url": f"{code['verification_url']}?user_code={code['user_code']}",
+        "interval": int(code.get("interval", 5)),
+        "expires_in": int(code.get("expires_in", 1800)),
+    }
+
+
+def oauth_finish(device_code: str) -> None:
+    """Exchange the device code for a token, or raise OAuthPending.
+
+    Google answers with an `error` field rather than an HTTP error while the
+    user is still on the consent screen, so the body has to be inspected.
+    """
+    creds = oauth_credentials()
+    raw = creds.token_from_code(device_code)
+
+    error = raw.get("error") if isinstance(raw, dict) else None
+    if error in {"authorization_pending", "slow_down"}:
+        raise OAuthPending(error)
+    if error == "expired_token":
+        raise NotAuthenticated("That sign-in code expired. Start again.")
+    if error == "access_denied":
+        raise NotAuthenticated("Sign-in was declined.")
+    if error:
+        raise NotAuthenticated(f"Sign-in failed: {error}")
+
+    expires = raw.get("refresh_token_expires_in", raw["expires_in"])
+    token = RefreshingToken(
+        credentials=creds,
+        access_token=raw["access_token"],
+        refresh_token=raw["refresh_token"],
+        scope=raw["scope"],
+        token_type=raw["token_type"],
+        expires_in=expires,
+    )
+    token.update(raw)
+    token.local_cache = settings.ytm_oauth_file  # setter writes the file
+    reset_client()
+
+
+def auth_mode() -> str:
+    """Which credential file is in play: 'oauth', 'browser', or ''."""
+    if settings.ytm_oauth_file.exists():
+        return "oauth"
+    if settings.ytm_auth_file.exists():
+        return "browser"
+    return ""
+
+
+def disconnect() -> None:
+    """Forget the stored session. Used when signing out or switching accounts."""
+    for path in (settings.ytm_oauth_file, settings.ytm_auth_file):
+        path.unlink(missing_ok=True)
+    reset_client()
+
+
 def reset_client() -> None:
     global _client
     _client = None
 
 
 def get_client() -> YTMusic:
+    """One cached client for the process.
+
+    Caching matters beyond speed: each new client replays the stored session,
+    and rapid re-authentication is what got a session dropped during earlier
+    debugging.
+    """
     global _client
     if _client is None:
-        if not settings.ytm_auth_file.exists():
-            raise NotAuthenticated(
-                f"{settings.ytm_auth_file.name} not found. Connect on the first "
-                "screen, or run `uv run ytmusicapi browser`."
+        mode = auth_mode()
+        if mode == "oauth":
+            _client = YTMusic(
+                str(settings.ytm_oauth_file),
+                oauth_credentials=oauth_credentials(),
             )
-        _client = YTMusic(str(settings.ytm_auth_file))
+        elif mode == "browser":
+            _client = YTMusic(str(settings.ytm_auth_file))
+        else:
+            raise NotAuthenticated(
+                "Not connected to YouTube Music. Sign in on the Connect screen."
+            )
     return _client
 
 
@@ -196,10 +298,11 @@ def check_auth() -> tuple[bool, str]:
         return False, f"Auth check failed: {e}"
 
     if not playlists:
+        again = ("Sign in again on the Connect screen." if auth_mode() == "oauth"
+                 else "Capture fresh request headers and reconnect.")
         return False, (
             "YouTube answered as if signed out — no playlists visible. Your "
-            "session has most likely expired, or you signed out of YouTube "
-            "Music. Capture fresh request headers and reconnect."
+            f"session has most likely expired. {again}"
         )
 
     who = f" as {account}" if account else ""

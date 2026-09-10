@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, ytm
-from .config import ROOT, settings
+from .config import ROOT, settings, update_env
 from .jobs import manager
 from .models import Bucket
 
@@ -41,6 +41,19 @@ app = FastAPI(title="Playlist Sorter", docs_url=None, redoc_url=None, lifespan=l
 
 class AuthBody(BaseModel):
     headers_raw: str
+
+
+class OAuthPollBody(BaseModel):
+    device_code: str
+
+
+class SettingsBody(BaseModel):
+    gemini_api_key: str | None = None
+    gemini_model: str | None = None
+    lastfm_api_key: str | None = None
+    ytm_oauth_client_id: str | None = None
+    ytm_oauth_client_secret: str | None = None
+    batch_size: int | None = None
 
 
 class BucketBody(BaseModel):
@@ -75,9 +88,97 @@ def status() -> dict:
             "model": settings.claude_model,
         },
         "lastfm": {"configured": settings.has_lastfm},
-        "ytmusic": {"configured": ytm_ok, "message": ytm_msg},
+        "ytmusic": {
+            "configured": ytm_ok,
+            "message": ytm_msg,
+            "mode": ytm.auth_mode(),
+            "oauth_client": settings.has_oauth_client,
+        },
         "batch_size": settings.batch_size,
+        "ready": settings.has_gemini or (
+            settings.claude_enabled and shutil.which(settings.claude_cli_path) is not None
+        ),
     }
+
+
+# --------------------------------------------------------------------------
+# setup
+# --------------------------------------------------------------------------
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    """Current values. Secrets come back masked — never echo a key in full."""
+    def mask(value: str) -> str:
+        if not value:
+            return ""
+        return f"{value[:4]}…{value[-4:]}" if len(value) > 12 else "…"
+
+    return {
+        "gemini_api_key": mask(settings.gemini_api_key),
+        "gemini_api_key_set": settings.has_gemini,
+        "gemini_model": settings.gemini_model,
+        "lastfm_api_key": mask(settings.lastfm_api_key),
+        "lastfm_api_key_set": settings.has_lastfm,
+        "ytm_oauth_client_id": settings.ytm_oauth_client_id,
+        "ytm_oauth_client_secret": mask(settings.ytm_oauth_client_secret),
+        "ytm_oauth_client_set": settings.has_oauth_client,
+        "batch_size": settings.batch_size,
+        "claude_available": shutil.which(settings.claude_cli_path) is not None,
+    }
+
+
+@app.post("/api/settings")
+def save_settings(body: SettingsBody) -> dict:
+    """Persist to .env. Blank fields are left alone rather than cleared."""
+    mapping = {
+        "GEMINI_API_KEY": body.gemini_api_key,
+        "GEMINI_MODEL": body.gemini_model,
+        "LASTFM_API_KEY": body.lastfm_api_key,
+        "YTM_OAUTH_CLIENT_ID": body.ytm_oauth_client_id,
+        "YTM_OAUTH_CLIENT_SECRET": body.ytm_oauth_client_secret,
+        "BATCH_SIZE": str(body.batch_size) if body.batch_size else None,
+    }
+    updates = {k: v.strip() for k, v in mapping.items() if v is not None and v.strip()}
+    if not updates:
+        return {"ok": True, "message": "Nothing to change."}
+
+    try:
+        update_env(updates)
+    except (ValueError, OSError) as e:
+        raise HTTPException(400, f"Could not save: {e}") from e
+
+    return {"ok": True, "message": f"Saved {len(updates)} setting(s)."}
+
+
+# --------------------------------------------------------------------------
+# auth
+# --------------------------------------------------------------------------
+
+@app.post("/api/auth/ytm/oauth/start")
+def oauth_start() -> dict:
+    try:
+        return ytm.oauth_start()
+    except ytm.NotAuthenticated as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"Could not start sign-in: {e}") from e
+
+
+@app.post("/api/auth/ytm/oauth/poll")
+def oauth_poll(body: OAuthPollBody) -> dict:
+    try:
+        ytm.oauth_finish(body.device_code)
+    except ytm.OAuthPending:
+        return {"status": "pending"}
+    except ytm.NotAuthenticated as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"Sign-in failed: {e}") from e
+
+    ok, message = ytm.check_auth()
+    if not ok:
+        raise HTTPException(400, message)
+    return {"status": "connected", "message": message}
 
 
 @app.post("/api/auth/ytm")
@@ -93,6 +194,12 @@ def auth_ytm(body: AuthBody) -> dict:
     if not ok:
         raise HTTPException(400, message)
     return {"ok": True, "message": message}
+
+
+@app.post("/api/auth/ytm/disconnect")
+def auth_disconnect() -> dict:
+    ytm.disconnect()
+    return {"ok": True, "message": "Disconnected."}
 
 
 @app.get("/api/playlists")
