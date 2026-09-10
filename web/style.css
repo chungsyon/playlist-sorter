@@ -297,7 +297,9 @@ strong { font-weight: 600; color: var(--ink); }
 }
 .card:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, .04); }
 
-.card-flush { padding: 20px; }
+/* Warm ground so the white paste window reads as a distinct surface rather
+   than dissolving into the card behind it. */
+.card-flush { padding: 20px; background: var(--canvas-warm); }
 .card-foot { margin-top: 16px; padding: 0 4px 2px; }
 
 .bento { display: grid; gap: 20px; align-items: start; }
@@ -339,12 +341,20 @@ strong { font-weight: 600; color: var(--ink); }
 .note-blue { background: var(--blue-bg); color: var(--blue-fg); margin: 0 0 24px; }
 .note-blue strong { color: inherit; }
 
-/* Faux-OS window chrome around the paste target */
+/* Faux-OS window chrome around the paste target. This is the one input the
+   whole app hinges on, so it is deliberately the highest-contrast surface on
+   the screen rather than another flat white panel. */
 .window {
-  border: 1px solid var(--line);
+  border: 1px solid #D8D7D3;
   border-radius: var(--r);
   overflow: hidden;
   background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .045);
+  transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+}
+.window:focus-within {
+  border-color: #A9A8A3;
+  box-shadow: 0 0 0 3px rgba(31, 30, 28, .07);
 }
 
 .window-bar {
@@ -353,12 +363,12 @@ strong { font-weight: 600; color: var(--ink); }
   gap: 6px;
   padding: 10px 14px;
   background: var(--surface-sunk);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid #E4E3DF;
 }
 .window-bar .dot {
   width: 9px; height: 9px;
   border-radius: 9999px;
-  background: #E3E3E1;
+  background: #D3D2CE;
   flex: none;
 }
 .window-bar em {
@@ -368,7 +378,7 @@ strong { font-weight: 600; color: var(--ink); }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .08em;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 /* --------------------------------------------------------------------------
@@ -392,12 +402,14 @@ textarea {
   border: none;
   border-radius: 0;
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.65;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink);
   resize: vertical;
-  padding: 16px;
+  padding: 18px;
 }
-textarea::placeholder { color: #C4C3C0; }
+/* Light enough to read as a hint, dark enough to actually read. */
+textarea::placeholder { color: #9E9D98; }
 
 textarea:focus, select:focus, input[type=text]:focus {
   outline: none;
