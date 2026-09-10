@@ -8,109 +8,200 @@
 </head>
 <body>
 
-<header>
-  <h1>Playlist Sorter</h1>
-  <div id="providerBar" class="provider-bar"></div>
+<!-- Ambient warm light. Fixed, non-interactive, purely atmospheric. -->
+<div class="ambient" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="wordmark">
+      <svg class="mark" viewBox="0 0 20 20" aria-hidden="true">
+        <rect x="2" y="7" width="3" height="6" rx="1.5"/>
+        <rect x="8.5" y="2.5" width="3" height="15" rx="1.5"/>
+        <rect x="15" y="9" width="3" height="2.5" rx="1.25"/>
+      </svg>
+      <h1>Playlist Sorter</h1>
+    </div>
+    <div id="providerBar" class="provider-bar"></div>
+  </div>
 </header>
 
-<nav class="steps">
-  <button class="step" data-screen="connect">1 · Connect</button>
-  <button class="step" data-screen="configure">2 · Configure</button>
-  <button class="step" data-screen="progress">3 · Sort</button>
-  <button class="step" data-screen="review">4 · Review</button>
+<nav class="steps" aria-label="Progress">
+  <div class="steps-inner">
+    <button class="step" data-screen="connect">
+      <span class="step-n">01</span><span class="step-l">Connect</span>
+    </button>
+    <button class="step" data-screen="configure">
+      <span class="step-n">02</span><span class="step-l">Configure</span>
+    </button>
+    <button class="step" data-screen="progress">
+      <span class="step-n">03</span><span class="step-l">Sort</span>
+    </button>
+    <button class="step" data-screen="review">
+      <span class="step-n">04</span><span class="step-l">Review</span>
+    </button>
+  </div>
 </nav>
 
 <main>
 
-  <!-- ─────────────── 1. CONNECT ─────────────── -->
+  <!-- ================= 1. CONNECT ================= -->
   <section id="connect" class="screen">
-    <h2>Connect YouTube Music</h2>
-    <p class="hint">
-      This app talks to YouTube Music using your browser session. Credentials stay
-      on this Mac in <code>browser.json</code> and last about two years.
-    </p>
 
-    <details class="how">
-      <summary>How to get your headers</summary>
-      <ol>
-        <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> while logged in.</li>
-        <li>Open DevTools (<kbd>⌥⌘I</kbd>) and go to the <strong>Network</strong> tab.</li>
-        <li>Type <code>/browse</code> in the filter box, then click around the page to make a request appear.</li>
-        <li>Click a <strong>POST</strong> request → <strong>Headers</strong> → copy everything under <strong>Request Headers</strong>.</li>
-        <li>Paste it below. The <code>Cookie</code> line must be included.</li>
-      </ol>
-    </details>
+    <div class="screen-head">
+      <p class="eyebrow">Step 01</p>
+      <h2>Connect YouTube Music</h2>
+      <p class="lede">
+        This app signs in with your existing browser session. Nothing is uploaded —
+        credentials are written to <code>browser.json</code> on this Mac and stay
+        valid for about two years.
+      </p>
+    </div>
 
-    <textarea id="headersInput" rows="10"
-              placeholder="Paste your full request headers here..."></textarea>
-    <div class="row">
-      <button id="connectBtn" class="primary">Connect</button>
-      <span id="connectStatus" class="status"></span>
+    <div class="bento connect-grid">
+
+      <article class="card">
+        <h3>Getting your headers</h3>
+        <ol class="numbered">
+          <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> while logged in.</li>
+          <li>Open DevTools with <kbd>⌥</kbd><kbd>⌘</kbd><kbd>I</kbd> and select the <strong>Network</strong> tab.</li>
+          <li>Filter for <code>browse</code>, then click a playlist in the sidebar so a request appears.</li>
+          <li>Open a <strong>POST</strong> request, go to <strong>Headers</strong>, and copy everything under <strong>Request Headers</strong>.</li>
+          <li>Paste it opposite. The <code>Cookie</code> line has to be included.</li>
+        </ol>
+        <p class="note note-yellow">
+          Copy the headers, not the request URL. That mix-up is what produces the
+          <code>Expecting value: line 1 column 1</code> error.
+        </p>
+      </article>
+
+      <article class="card card-flush">
+        <div class="window">
+          <div class="window-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <em>Request Headers</em>
+          </div>
+          <textarea id="headersInput" rows="15" spellcheck="false"
+                    placeholder="accept: */*&#10;authorization: SAPISIDHASH …&#10;cookie: …&#10;user-agent: …&#10;x-goog-authuser: 0"></textarea>
+        </div>
+        <div class="row card-foot">
+          <button id="connectBtn" class="primary">
+            Connect
+            <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
+            </svg>
+          </button>
+          <span id="connectStatus" class="status"></span>
+        </div>
+      </article>
+
     </div>
   </section>
 
-  <!-- ─────────────── 2. CONFIGURE ─────────────── -->
+  <!-- ================= 2. CONFIGURE ================= -->
   <section id="configure" class="screen">
-    <h2>What are we sorting?</h2>
+
+    <div class="screen-head">
+      <p class="eyebrow">Step 02</p>
+      <h2>What are we sorting?</h2>
+      <p class="lede">
+        Choose the playlist to read from, then pick where its songs are allowed to go.
+      </p>
+    </div>
 
     <label class="field">
-      <span>Source playlist — the one being sorted</span>
-      <select id="sourceSelect"></select>
+      <span class="field-label">Source playlist</span>
+      <span class="select-wrap"><select id="sourceSelect"></select></span>
+      <span class="field-help">Read from only. This playlist is never modified.</span>
     </label>
 
-    <h3>Destination playlists</h3>
-    <p class="hint">
-      Tick the playlists songs should be routed into, then describe each one in a
-      sentence. <strong>These descriptions are the single biggest accuracy lever</strong> —
-      "Slow Down" means nothing on its own, but "mellow, low-tempo songs for winding
+    <div class="section-head">
+      <h3>Destination playlists</h3>
+      <p class="section-sub">Tick every playlist songs may be routed into. A song can land in more than one.</p>
+    </div>
+
+    <p class="note note-blue">
+      <strong>Descriptions are the single biggest accuracy lever.</strong>
+      "Slow Down" means nothing on its own — "mellow, low-tempo songs for winding
       down at the end of the day" gives the model something real to match against.
     </p>
 
     <div id="bucketList" class="bucket-list"></div>
 
     <div class="row">
-      <button id="startBtn" class="primary">Start sorting</button>
+      <button id="startBtn" class="primary">
+        Start sorting
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
+        </svg>
+      </button>
       <span id="configStatus" class="status"></span>
     </div>
   </section>
 
-  <!-- ─────────────── 3. PROGRESS ─────────────── -->
+  <!-- ================= 3. PROGRESS ================= -->
   <section id="progress" class="screen">
-    <h2>Sorting</h2>
 
-    <div class="progress-wrap">
-      <div id="progressBar" class="progress-bar"><div></div></div>
-      <div id="progressLabel" class="progress-label">Starting…</div>
+    <div class="screen-head">
+      <p class="eyebrow">Step 03</p>
+      <h2>Sorting</h2>
+      <p class="lede">
+        Songs go to the model fifty at a time. Pause whenever you like — the job
+        resumes from its cursor, and nothing already classified is re-sent.
+      </p>
     </div>
 
-    <div id="phaseMsg" class="phase-msg"></div>
+    <div class="card progress-wrap">
+      <div id="progressLabel" class="progress-label">Starting…</div>
+      <div id="progressBar" class="progress-bar"><div></div></div>
+      <div id="phaseMsg" class="phase-msg"></div>
+    </div>
+
     <div id="providerDetail" class="provider-detail"></div>
     <div id="eventLog" class="event-log"></div>
 
     <div class="row">
       <button id="pauseBtn">Pause</button>
       <button id="resumeBtn" class="hidden">Resume</button>
-      <button id="toReviewBtn" class="primary hidden">Go to review</button>
+      <button id="toReviewBtn" class="primary hidden">
+        Go to review
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>
+        </svg>
+      </button>
     </div>
   </section>
 
-  <!-- ─────────────── 4. REVIEW ─────────────── -->
+  <!-- ================= 4. REVIEW ================= -->
   <section id="review" class="screen">
-    <h2>Review before anything is written</h2>
+
+    <div class="screen-head">
+      <p class="eyebrow">Step 04</p>
+      <h2>Review before anything is written</h2>
+      <p class="lede">
+        Every assignment the model made, grouped by destination. Click a chip to add
+        or remove a playlist — edits save as you make them.
+      </p>
+    </div>
+
     <div id="reviewStats" class="stats"></div>
 
     <div class="row filters">
-      <label><input type="checkbox" id="lowOnly"> Show only low-confidence</label>
+      <label class="check">
+        <input type="checkbox" id="lowOnly">
+        <span>Show only low-confidence</span>
+      </label>
       <button id="refreshReview">Refresh</button>
     </div>
 
     <div id="reviewBody"></div>
 
     <div class="apply-bar">
-      <div>
+      <div class="apply-copy">
         <strong>Nothing has been written to YouTube Music yet.</strong>
-        <div class="hint">Applying only adds songs. Your source playlist is never modified,
-        and a backup of every destination is saved to <code>backups/</code> first.</div>
+        <div class="hint">
+          Applying only ever adds songs. Your source playlist is untouched, and a
+          backup of every destination is written to <code>backups/</code> first.
+        </div>
       </div>
       <button id="applyBtn" class="primary danger">Apply to YouTube Music</button>
     </div>
