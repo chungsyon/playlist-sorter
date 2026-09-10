@@ -11,6 +11,9 @@ const state = {
   lowOnly: false,
   oauth: null,      // { device_code, interval, timer, deadline }
   hasOauthClient: false,
+  connected: false,   // YouTube Music session is live
+  ready: false,       // at least one classifier is configured
+  reviewReady: false, // the job has produced classifications
 };
 
 // ---------------------------------------------------------------------------
@@ -36,13 +39,60 @@ function setStatus(el, message, kind = '') {
 // navigation
 // ---------------------------------------------------------------------------
 
+/** Why each step is or isn't reachable yet. Order matters: first unmet wins. */
+function stepGate(name) {
+  switch (name) {
+    case 'configure':
+      if (!state.connected) return 'Connect YouTube Music first.';
+      return null;
+    case 'progress':
+      if (!state.connected) return 'Connect YouTube Music first.';
+      if (!state.jobId) return 'Start a sort from Configure first.';
+      return null;
+    case 'review':
+      if (!state.connected) return 'Connect YouTube Music first.';
+      if (!state.jobId) return 'Start a sort from Configure first.';
+      if (!state.reviewReady) return 'Still sorting — this unlocks when it finishes.';
+      return null;
+    default:
+      return null;
+  }
+}
+
+/** Paint the lock state onto the rail. Cheap, so it runs after any change. */
+function updateSteps() {
+  $$('.step').forEach((btn) => {
+    const why = stepGate(btn.dataset.screen);
+    btn.classList.toggle('locked', !!why);
+    btn.setAttribute('aria-disabled', why ? 'true' : 'false');
+    if (why) btn.dataset.why = why; else delete btn.dataset.why;
+  });
+}
+
+let navHintTimer = null;
+
+function flashNavHint(message) {
+  const el = $('#navHint');
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(navHintTimer);
+  navHintTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
 function show(name) {
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === name));
   $$('.step').forEach((b) => b.classList.toggle('active', b.dataset.screen === name));
+  updateSteps();
 }
 
+// Locked steps stay clickable on purpose: a disabled button can't explain
+// itself, and "why is this greyed out" is the question we want to answer.
 $$('.step').forEach((btn) => {
-  btn.addEventListener('click', () => show(btn.dataset.screen));
+  btn.addEventListener('click', () => {
+    const why = stepGate(btn.dataset.screen);
+    if (why) return flashNavHint(why);
+    show(btn.dataset.screen);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -70,7 +120,10 @@ async function refreshStatus() {
   ].join('');
 
   state.hasOauthClient = !!s.ytmusic?.oauth_client;
+  state.connected = !!s.ytmusic?.configured;
+  state.ready = !!s.ready;
   renderOauthPanel();
+  updateSteps();
   return s;
 }
 
@@ -321,6 +374,11 @@ function renderBuckets() {
 $('#sourceSelect').addEventListener('change', renderBuckets);
 
 $('#startBtn').addEventListener('click', async () => {
+  if (!state.ready) {
+    return setStatus($('#configStatus'),
+      'No classifier configured. Add a Gemini API key on the Setup screen first.', 'bad');
+  }
+
   const buckets = $$('.bucket')
     .filter((el) => el.querySelector('.bucket-check').checked)
     .map((el) => ({
@@ -351,6 +409,7 @@ $('#startBtn').addEventListener('click', async () => {
       }),
     });
     state.jobId = job_id;
+    state.reviewReady = false;  // a fresh job re-locks Review until it produces results
     setStatus($('#configStatus'), '');
     show('progress');
     startPolling();
@@ -405,6 +464,11 @@ async function pollJob() {
 
   const paused = job.phase === 'paused';
   const finished = ['classified', 'done'].includes(job.phase);
+
+  // Review opens once there is something to review — including a paused job,
+  // which has partial results worth looking at.
+  state.reviewReady = finished || paused;
+  updateSteps();
 
   $('#pauseBtn').classList.toggle('hidden', paused || finished);
   $('#resumeBtn').classList.toggle('hidden', !paused);

@@ -218,6 +218,17 @@ def playlists() -> dict:
 
 @app.post("/api/jobs")
 def create_job(body: JobBody) -> dict:
+    # The UI gates these too, but the API is what actually has to hold — it is
+    # reachable directly, and a job started without them fails halfway through.
+    if not settings.ytm_authenticated:
+        raise HTTPException(401, "Not connected to YouTube Music. Sign in first.")
+    if not settings.has_gemini and not (
+        settings.claude_enabled and shutil.which(settings.claude_cli_path)
+    ):
+        raise HTTPException(
+            400,
+            "No classifier configured. Add a Gemini API key on the Setup screen.",
+        )
     if not body.buckets:
         raise HTTPException(400, "Pick at least one destination playlist.")
 
