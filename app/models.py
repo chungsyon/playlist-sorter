@@ -41,12 +41,19 @@ class Bucket(BaseModel):
         return f'- "{self.name}"'
 
 
-def bucket_hash(buckets: list[Bucket]) -> str:
-    """Cache key for a set of buckets. Changing a name or description must
-    invalidate cached classifications, since they were made against the old
-    definitions."""
+def bucket_hash(buckets: list[Bucket], prompt_template: str = "") -> str:
+    """Cache key for a set of buckets *and* the prompt they were judged under.
+
+    Changing a name or description must invalidate cached classifications,
+    since they were made against the old definitions. So must changing the
+    prompt: results produced under different instructions are not
+    interchangeable. Feeding the template in means an edit to the wording
+    invalidates the cache automatically, with nothing to remember to bump.
+    """
     payload = sorted((b.name, b.description) for b in buckets)
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    if prompt_template:
+        blob += "\x00" + prompt_template
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 

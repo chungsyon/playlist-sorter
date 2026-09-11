@@ -14,6 +14,9 @@ from .router import ProviderRouter
 
 log = logging.getLogger(__name__)
 
+# NOTE: this template is part of the classification cache key (see
+# models.bucket_hash). Editing it invalidates cached results automatically,
+# which is intended — old results were produced under different instructions.
 SYSTEM_RULES = """You are sorting songs into playlists by their vibe.
 
 DESTINATION PLAYLISTS:
@@ -24,16 +27,40 @@ SONGS (format: index | title | artist | album | tags):
 
 For each song, decide which destination playlists it belongs in.
 
-Rules:
-- Judge by how the song actually sounds and feels: tempo, energy, mood, genre,
+HOW MANY PLAYLISTS PER SONG
+- Do not decide on a number first. Take each playlist in turn and ask one
+  question: does this song belong here? Keep the ones where the answer is
+  clearly yes.
+- Judged that way, many songs land in exactly one playlist, some genuinely live
+  in two, a few fit none at all, and now and then one earns three. All of those
+  are normal results — let the song decide, not a quota.
+- Do not include a playlist because the song is "close enough", or because they
+  share a genre. Sitting next to a mood is not the same as belonging to it.
+- Return an EMPTY list only when no playlist is a good home for the song. That
+  is a real answer where it applies, but it is the exception.
+- Your reason and your list must agree. If the reason says the song suits a
+  playlist, that playlist has to appear in the list.
+- Before you settle on an empty list, read back the words you used to describe
+  the song and check them against the playlist descriptions once more. Where a
+  description uses the same language, that playlist belongs in the list.
+
+CHOOSING BETWEEN SIMILAR PLAYLISTS
+- Several playlists may cover neighbouring moods, and their descriptions
+  usually say how they differ from one another. Use that: when one of them
+  clearly fits better, choose it alone. Keep both only when the song genuinely
+  lives in both.
+- Put the strongest fit first in the list.
+
+JUDGING
+- Go by how the song actually sounds and feels: tempo, energy, mood, genre,
   production style, and what the lyrics are about.
-- A song may belong to MULTIPLE playlists if it genuinely fits more than one.
-- A song may belong to NONE. Return an empty list rather than forcing a bad fit.
 - Use ONLY the exact playlist names listed above, spelled exactly as written.
-- confidence: 0.0-1.0. If you do not recognise the song and are inferring only
-  from its title, artist and tags, use a value below 0.5. Be honest here — a low
-  score sends it to human review, which is the correct outcome.
-- reason: at most 10 words explaining the call.
+- confidence: 0.0-1.0, for your single best-fit choice. If you do not recognise
+  the song and are inferring only from its title, artist and tags, use a value
+  below 0.5. Be honest — a low score sends it to human review, which is the
+  correct outcome.
+- reason: at most 15 words. If you list more than one playlist, say briefly what
+  earns it the second.
 - Return EXACTLY one entry per song. The "idx" must match the input index.
 
 Return a JSON array of objects with keys: idx, playlists, confidence, reason."""

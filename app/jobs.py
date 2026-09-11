@@ -124,7 +124,9 @@ class JobManager:
             job_id=job_id,
             source_playlist_id=source_playlist_id,
             buckets=buckets,
-            bucket_hash=bucket_hash(buckets),
+            # The prompt is part of the key: edit the wording and cached
+            # results from the old wording stop being reused.
+            bucket_hash=bucket_hash(buckets, classify.SYSTEM_RULES),
         )
         with self._lock:
             self._jobs[job_id] = state
