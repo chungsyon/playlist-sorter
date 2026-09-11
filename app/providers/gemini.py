@@ -58,7 +58,7 @@ class GeminiProvider(Provider):
             self._client = genai.Client(api_key=settings.gemini_api_key)
         return self._client
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, schema: dict | None = None) -> str:
         if not self.available():
             raise ProviderError("GEMINI_API_KEY is not set in .env")
 
@@ -72,7 +72,7 @@ class GeminiProvider(Provider):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=RESPONSE_SCHEMA,
+                    response_schema=schema or RESPONSE_SCHEMA,
                     temperature=0.2,  # classification wants consistency, not flair
                     # We pass no tools; disabling AFC silences a spurious SDK warning.
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(

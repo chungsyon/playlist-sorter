@@ -294,6 +294,28 @@
     </label>
 
     <div class="section-head">
+      <h3>Groups</h3>
+      <p class="section-sub">Optional. Sort along more than one axis at once.</p>
+    </div>
+
+    <p class="note note-blue">
+      A group is one question you want asked about every song. Put "Sunny Drive"
+      and "Late Night Drive" in a group called <strong>Use</strong>, and "J-Pop"
+      and "Chill Hiphop" in one called <strong>Vibe</strong> — every song then
+      gets at least one playlist from <em>each</em> group, so the two questions
+      are answered independently instead of competing. Leave a playlist
+      ungrouped and it stays optional, as before.
+    </p>
+
+    <div class="group-editor">
+      <div id="groupChips" class="group-chips"></div>
+      <div class="group-add">
+        <input type="text" id="groupInput" placeholder="Name a group — e.g. Use, Vibe, Energy">
+        <button id="addGroupBtn" class="ghost">Add group</button>
+      </div>
+    </div>
+
+    <div class="section-head">
       <h3>Destination playlists</h3>
       <p class="section-sub">Tick every playlist songs may be routed into. A song can land in more than one.</p>
     </div>

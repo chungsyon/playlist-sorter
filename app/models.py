@@ -29,11 +29,20 @@ class Track(BaseModel):
 
 
 class Bucket(BaseModel):
-    """A destination playlist the user wants songs routed into."""
+    """A destination playlist the user wants songs routed into.
+
+    `group` is the axis this playlist sits on. Playlists sharing a group are
+    alternatives to one another — "Sunny Drive" and "Late Night Drive" both
+    answer *when would you play this*, while "J-Pop" and "Chill Hiphop" answer
+    *what does it sound like*. Every song gets at least one playlist from every
+    group, so the two questions are answered independently instead of competing.
+    Leaving it blank keeps a playlist optional, the way every playlist used to be.
+    """
 
     playlist_id: str
     name: str
     description: str = ""
+    group: str = ""
 
     def as_prompt_row(self) -> str:
         if self.description:
@@ -41,16 +50,45 @@ class Bucket(BaseModel):
         return f'- "{self.name}"'
 
 
+def group_names(buckets: list[Bucket]) -> list[str]:
+    """Distinct group names, in the order the buckets were given."""
+    seen: list[str] = []
+    for b in buckets:
+        if b.group and b.group not in seen:
+            seen.append(b.group)
+    return seen
+
+
+def missing_groups(playlists: list[str], buckets: list[Bucket]) -> list[str]:
+    """Groups this song got nothing from.
+
+    Derived from the assignment rather than stored alongside it, so it stays
+    correct for classifications loaded from cache and needs no schema change.
+    """
+    chosen = {p.strip().lower() for p in playlists}
+    out = []
+    for name in group_names(buckets):
+        members = [b.name.strip().lower() for b in buckets if b.group == name]
+        if not chosen.intersection(members):
+            out.append(name)
+    return out
+
+
 def bucket_hash(buckets: list[Bucket], prompt_template: str = "") -> str:
     """Cache key for a set of buckets *and* the prompt they were judged under.
 
-    Changing a name or description must invalidate cached classifications,
-    since they were made against the old definitions. So must changing the
-    prompt: results produced under different instructions are not
+    Changing a name, description or group must invalidate cached
+    classifications, since they were made against the old definitions. So must
+    changing the prompt: results produced under different instructions are not
     interchangeable. Feeding the template in means an edit to the wording
     invalidates the cache automatically, with nothing to remember to bump.
     """
-    payload = sorted((b.name, b.description) for b in buckets)
+    # Group is only folded in when it is set, so adding the feature does not
+    # invalidate the cache of anyone who is not using it.
+    payload = sorted(
+        [b.name, b.description, b.group] if b.group else [b.name, b.description]
+        for b in buckets
+    )
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     if prompt_template:
         blob += "\x00" + prompt_template

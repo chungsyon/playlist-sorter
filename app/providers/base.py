@@ -32,6 +32,43 @@ RESPONSE_SCHEMA = {
 }
 
 
+def grouped_response_schema(groups: list[str],
+                            optional_key: str | None = None) -> dict:
+    """One answer slot per group, instead of a single flat list.
+
+    Asking for the picks grouped is what actually holds the "at least one from
+    every group" rule. A flat list lets the model answer one group twice and
+    forget another — telling it not to only gets so far, but a required key per
+    group makes the mistake impossible to write down.
+    """
+    # minItems forbids the other way out: a required key holding an empty list.
+    slots = {
+        g: {"type": "array", "items": {"type": "string"}, "minItems": 1}
+        for g in groups
+    }
+    if optional_key:
+        # Present but not required — ungrouped playlists are genuinely optional.
+        slots[optional_key] = {"type": "array", "items": {"type": "string"}}
+
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "idx": {"type": "integer"},
+                "picks": {
+                    "type": "object",
+                    "properties": slots,
+                    "required": list(groups),
+                },
+                "confidence": {"type": "number"},
+                "reason": {"type": "string"},
+            },
+            "required": ["idx", "picks", "confidence"],
+        },
+    }
+
+
 class Provider(ABC):
     name: str = "base"
 
@@ -40,8 +77,13 @@ class Provider(ABC):
         """False if unconfigured — the router skips it silently."""
 
     @abstractmethod
-    def generate_json(self, prompt: str) -> str:
-        """Return raw JSON text. Raise QuotaExhausted or ProviderError."""
+    def generate_json(self, prompt: str, schema: dict | None = None) -> str:
+        """Return raw JSON text. Raise QuotaExhausted or ProviderError.
+
+        `schema` overrides RESPONSE_SCHEMA for providers that can enforce one.
+        Providers that cannot are free to ignore it — the prompt describes the
+        same shape in words.
+        """
 
 
 def extract_json_array(raw: str) -> list[dict]:

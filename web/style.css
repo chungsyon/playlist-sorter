@@ -667,6 +667,83 @@ button.danger:hover:not(:disabled) { background: #8A2826; border-color: #8A2826;
 
 .bucket .bucket-desc { margin-top: 10px; font-size: 13px; padding: 8px 11px; }
 
+.bucket .bucket-group-wrap { display: block; margin-top: 8px; }
+.bucket .bucket-group-select { font-size: 12.5px; padding: 7px 11px; }
+
+/* --------------------------------------------------------------------------
+   Groups — the optional second sorting axis
+   -------------------------------------------------------------------------- */
+
+.group-editor { margin-bottom: 32px; }
+
+.group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-bottom: 12px;
+}
+
+.group-empty { font-size: 13px; color: var(--faint); }
+
+.group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  background: var(--blue-bg);
+  color: var(--blue-fg);
+  border-radius: 9999px;
+  padding: 4px 6px 4px 12px;
+}
+
+.group-chip .x {
+  all: unset;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  opacity: .55;
+}
+.group-chip .x:hover { opacity: 1; background: rgba(0, 0, 0, .06); }
+
+.group-add { display: flex; gap: 8px; max-width: 460px; }
+.group-add input { flex: 1; font-size: 13px; padding: 8px 11px; }
+
+/* Heading over each axis in Review and Summary. */
+h3.axis {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--muted);
+  margin: 46px 0 -6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+h3.axis:first-child { margin-top: 0; }
+
+/* A song that came up empty on one of its groups. */
+.gap:not(:empty) {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--yellow-fg);
+  background: var(--yellow-bg);
+  border-radius: var(--r-sm);
+  padding: 3px 7px;
+  width: fit-content;
+}
+
 /* --------------------------------------------------------------------------
    Progress
    -------------------------------------------------------------------------- */

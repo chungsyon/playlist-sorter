@@ -18,7 +18,7 @@ from typing import Any
 
 from . import classify, db, enrich, ytm
 from .config import settings
-from .models import Assignment, Bucket, Track, bucket_hash
+from .models import Assignment, Bucket, Track, bucket_hash, group_names, missing_groups
 from .router import AllProvidersExhausted, ProviderRouter
 
 log = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ class JobManager:
             buckets=buckets,
             # The prompt is part of the key: edit the wording and cached
             # results from the old wording stop being reused.
-            bucket_hash=bucket_hash(buckets, classify.SYSTEM_RULES),
+            bucket_hash=bucket_hash(buckets, classify.rules_for(buckets)),
         )
         with self._lock:
             self._jobs[job_id] = state
@@ -308,22 +308,30 @@ class JobManager:
                 "playlist_id": bucket.playlist_id,
                 "name": bucket.name,
                 "description": bucket.description,
+                "group": bucket.group,
                 "added": len(ids),
                 "skipped": max(0, skipped),
                 "songs": songs,
             })
 
-        buckets.sort(key=lambda b: -b["added"])
+        # Grouped sorts read better by axis — all the "Use" playlists together,
+        # then all the "Vibe" ones. Busiest first inside each group, as before.
+        order = {name: i for i, name in enumerate(group_names(state.buckets))}
+        buckets.sort(key=lambda b: (order.get(b["group"], len(order)), -b["added"]))
 
-        unassigned = sum(
-            1 for vid, a in state.assignments.items()
-            if not overrides.get(vid, a.playlists)
-        )
+        unassigned = incomplete = 0
+        for vid, a in state.assignments.items():
+            names = overrides.get(vid, a.playlists)
+            if not names:
+                unassigned += 1
+            elif missing_groups(names, state.buckets):
+                incomplete += 1
 
         return {
             "job_id": state.job_id,
             "source_name": state.source_name,
             "phase": state.phase,
+            "groups": group_names(state.buckets),
             "buckets": buckets,
             "backup_path": state.backup_path,
             "stats": {
@@ -332,6 +340,7 @@ class JobManager:
                 "skipped": total_skipped,
                 "failed": len(state.failed_writes),
                 "unassigned": unassigned,
+                "incomplete": incomplete,
                 "classified": len(state.assignments),
             },
         }
@@ -343,6 +352,7 @@ class JobManager:
 
         by_bucket: dict[str, list[dict]] = {b.name: [] for b in state.buckets}
         unmatched: list[dict] = []
+        incomplete: list[dict] = []
         low_confidence = 0
 
         for vid, assignment in state.assignments.items():
@@ -351,6 +361,7 @@ class JobManager:
                 continue
 
             names = overrides.get(vid, assignment.playlists)
+            gaps = missing_groups(names, state.buckets)
             row = {
                 "video_id": vid,
                 "title": track.title,
@@ -362,12 +373,17 @@ class JobManager:
                 "provider": assignment.provider,
                 "overridden": vid in overrides,
                 "low_confidence": assignment.confidence < settings.confidence_threshold,
+                "missing_groups": gaps,
             }
             if row["low_confidence"]:
                 low_confidence += 1
 
             if not names:
                 unmatched.append(row)
+            elif gaps:
+                # Landed somewhere, but a group it was promised to came up empty.
+                # Easy to miss inside a bucket list, so it gets its own section.
+                incomplete.append(row)
             for name in names:
                 by_bucket.setdefault(name, []).append(row)
 
@@ -375,24 +391,29 @@ class JobManager:
         for rows in by_bucket.values():
             rows.sort(key=lambda r: r["confidence"])
         unmatched.sort(key=lambda r: r["confidence"])
+        incomplete.sort(key=lambda r: r["confidence"])
 
         return {
             "job_id": state.job_id,
             "source_name": state.source_name,
+            "groups": group_names(state.buckets),
             "buckets": [
                 {
                     "playlist_id": b.playlist_id,
                     "name": b.name,
                     "description": b.description,
+                    "group": b.group,
                     "songs": by_bucket.get(b.name, []),
                 }
                 for b in state.buckets
             ],
             "unmatched": unmatched,
+            "incomplete": incomplete,
             "stats": {
                 "total": len(state.assignments),
                 "assigned": len(state.assignments) - len(unmatched),
                 "unmatched": len(unmatched),
+                "incomplete": len(incomplete),
                 "low_confidence": low_confidence,
                 "providers": state.router.tallies,
             },

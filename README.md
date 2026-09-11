@@ -72,6 +72,37 @@ no editing config files by hand.
 5. **Review** — every song, grouped by destination, least-confident first. Click the
    chips to reassign. **Nothing reaches YouTube Music until you press Apply.**
 
+### Groups — sorting on more than one axis
+
+By default every destination is independent: a song goes wherever it fits, which
+may be one playlist, several, or none.
+
+Often that isn't what you want. If your playlists really answer two different
+questions — *when would I play this* and *what does it sound like* — you end up
+with a song landing in two "when" playlists and no "what" playlist at all.
+
+Groups fix that. Name a group on the Configure screen and put each destination in
+one:
+
+| Group | Playlists |
+|---|---|
+| **Use** | Sunny Drive, Late Night Drive, Work Out, Sunset |
+| **Vibe** | Chill Hiphop, J-Pop, Party Vibes, Hype Up, Slow Down |
+
+Every song then gets **at least one playlist from every group** — one Use, one
+Vibe — so the two questions are answered independently instead of competing.
+Usually it's exactly one per group; two only when the song genuinely lives in
+both. Playlists you leave ungrouped stay optional, exactly as before.
+
+This is enforced by the *shape* of the model's answer, not just by asking: a
+grouped run requires one non-empty slot per group, so an answer that fills one
+group twice and skips another can't be written down. On a 200-song sample, 99%
+came back with every group filled. The rest are flagged in Review under **Needs
+attention → Missing a group**, where you can add the missing playlist by hand.
+
+A group needs at least two playlists — with one, every song goes there, which is
+a filter rather than a choice.
+
 Check your setup at any time:
 
 ```bash

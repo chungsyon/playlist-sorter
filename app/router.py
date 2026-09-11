@@ -45,7 +45,8 @@ class ProviderRouter:
             "events": self.events[-20:],
         }
 
-    def generate_json(self, prompt: str) -> tuple[str, str]:
+    def generate_json(self, prompt: str,
+                      schema: dict | None = None) -> tuple[str, str]:
         """Return (json_text, provider_name), walking the chain on exhaustion."""
         if not self.configured():
             raise AllProvidersExhausted(
@@ -61,7 +62,7 @@ class ProviderRouter:
 
             for attempt in range(1, RETRIES_PER_PROVIDER + 1):
                 try:
-                    text = provider.generate_json(prompt)
+                    text = provider.generate_json(prompt, schema)
                     self.tallies[provider.name] = self.tallies.get(provider.name, 0) + 1
                     return text, provider.name
 

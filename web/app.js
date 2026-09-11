@@ -5,6 +5,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
   playlists: [],
+  groups: [],       // user-named axes; a playlist may sit on one of them
   jobId: null,
   poll: null,
   review: null,
@@ -362,6 +363,9 @@ function renderBuckets() {
             p.count != null ? `<span class="count">${p.count} songs</span>` : ''}</div>
           <input type="text" class="bucket-desc"
                  placeholder="Describe the vibe — e.g. mellow, low-tempo, for winding down">
+          <span class="select-wrap bucket-group-wrap">
+            <select class="bucket-group-select"></select>
+          </span>
         </div>
       </label>
     `).join('');
@@ -372,13 +376,87 @@ function renderBuckets() {
     });
   });
 
-  // Typing a description shouldn't toggle the surrounding label's checkbox.
+  // Typing a description or picking a group shouldn't toggle the surrounding
+  // label's checkbox.
   $$('.bucket-desc').forEach((input) => {
     input.addEventListener('click', (e) => e.preventDefault());
   });
+
+  $$('.bucket-group-select').forEach((sel) => {
+    sel.addEventListener('click', (e) => e.preventDefault());
+    sel.addEventListener('change', () => {
+      // Putting a playlist in a group is a clear statement that you want it
+      // used, so tick it rather than making that a second, forgettable step.
+      if (!sel.value) return;
+      const check = sel.closest('.bucket').querySelector('.bucket-check');
+      check.checked = true;
+      sel.closest('.bucket').classList.add('checked');
+    });
+  });
+
+  syncGroupSelects();
 }
 
 $('#sourceSelect').addEventListener('change', renderBuckets);
+
+// ---------------------------------------------------------------------------
+// groups — the optional second axis
+// ---------------------------------------------------------------------------
+
+function renderGroups() {
+  $('#groupChips').innerHTML = state.groups.length
+    ? state.groups.map((g) => `
+        <span class="group-chip">${escape(g)}<button class="x" data-group="${escape(g)}"
+          aria-label="Remove ${escape(g)}">&times;</button></span>`).join('')
+    : '<span class="group-empty">No groups yet — every playlist stays optional.</span>';
+
+  $$('#groupChips .x').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.groups = state.groups.filter((g) => g !== btn.dataset.group);
+      renderGroups();
+    });
+  });
+
+  syncGroupSelects();
+}
+
+/** Repopulate the per-playlist group pickers, keeping any choice still valid. */
+function syncGroupSelects() {
+  const options = ['<option value="">No group</option>']
+    .concat(state.groups.map((g) => `<option value="${escape(g)}">${escape(g)}</option>`))
+    .join('');
+
+  $$('.bucket-group-select').forEach((sel) => {
+    const current = sel.value;
+    sel.innerHTML = options;
+    sel.value = state.groups.includes(current) ? current : '';
+  });
+
+  // With no groups defined the pickers are noise, so they stay out of the way.
+  $$('.bucket-group-wrap').forEach((wrap) => {
+    wrap.style.display = state.groups.length ? '' : 'none';
+  });
+}
+
+function addGroup() {
+  const input = $('#groupInput');
+  const name = input.value.trim();
+  if (!name) return;
+  if (state.groups.some((g) => g.toLowerCase() === name.toLowerCase())) {
+    return setStatus($('#configStatus'), `There is already a group called "${name}".`, 'bad');
+  }
+  state.groups.push(name);
+  input.value = '';
+  setStatus($('#configStatus'), '');
+  renderGroups();
+}
+
+renderGroups();
+
+$('#addGroupBtn').addEventListener('click', addGroup);
+$('#groupInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addGroup(); }
+});
 
 $('#startBtn').addEventListener('click', async () => {
   if (!state.ready) {
@@ -392,10 +470,22 @@ $('#startBtn').addEventListener('click', async () => {
       playlist_id: el.dataset.id,
       name: el.querySelector('.name').childNodes[0].textContent.trim(),
       description: el.querySelector('.bucket-desc').value.trim(),
+      group: el.querySelector('.bucket-group-select').value,
     }));
 
   if (!buckets.length) {
     return setStatus($('#configStatus'), 'Pick at least one destination playlist.', 'bad');
+  }
+
+  // A one-playlist group sends every song to that playlist — a filter, not a
+  // choice. The server rejects it too; catching it here explains it sooner.
+  for (const g of state.groups) {
+    const members = buckets.filter((b) => b.group === g);
+    if (members.length === 1) {
+      return setStatus($('#configStatus'),
+        `Group "${g}" has only one playlist ticked, so every song would be sent ` +
+        `there. Add another playlist to the group, or remove the group.`, 'bad');
+    }
   }
 
   const missing = buckets.filter((b) => !b.description).length;
@@ -527,22 +617,48 @@ function renderReview() {
     stat(s.total, 'classified'),
     stat(s.assigned, 'assigned'),
     stat(s.unmatched, 'matched nothing'),
+    ...(data.groups?.length ? [stat(s.incomplete, 'missing a group')] : []),
     stat(s.low_confidence, 'low confidence'),
     ...Object.entries(s.providers || {}).map(([k, v]) => stat(v, `${k} calls`)),
   ].join('');
 
   const allNames = data.buckets.map((b) => b.name);
-  const groups = [];
+  const sections = [];
+  let lastGroup = null;
 
   for (const bucket of data.buckets) {
+    // A heading each time the axis changes, so the two questions stay visibly
+    // separate instead of reading as one long list of playlists.
+    if (data.groups?.length && bucket.group !== lastGroup) {
+      lastGroup = bucket.group;
+      sections.push(`<h3 class="axis">${bucket.group
+        ? escape(bucket.group)
+        : 'Not in a group'}</h3>`);
+    }
     const rows = state.lowOnly
       ? bucket.songs.filter((r) => r.low_confidence)
       : bucket.songs;
-    groups.push(group(bucket.name, bucket.description, rows, allNames));
+    sections.push(group(bucket.name, bucket.description, rows, allNames));
+  }
+
+  // Only grouped sorts get this divider; without groups the leftovers section
+  // reads fine on its own, as it always has.
+  if (data.groups?.length && (data.incomplete?.length || data.unmatched.length)) {
+    sections.push(`<h3 class="axis">Needs attention</h3>`);
+  }
+
+  if (data.incomplete?.length) {
+    sections.push(group(
+      'Missing a group',
+      'These landed somewhere, but came up empty on a group they were promised ' +
+      'to. Add the missing playlist by hand.',
+      state.lowOnly ? data.incomplete.filter((r) => r.low_confidence) : data.incomplete,
+      allNames,
+    ));
   }
 
   if (data.unmatched.length) {
-    groups.push(group(
+    sections.push(group(
       'Matched nothing',
       'These did not clearly fit any playlist. Assign them by hand or leave them out.',
       state.lowOnly ? data.unmatched.filter((r) => r.low_confidence) : data.unmatched,
@@ -550,7 +666,7 @@ function renderReview() {
     ));
   }
 
-  $('#reviewBody').innerHTML = groups.join('');
+  $('#reviewBody').innerHTML = sections.join('');
   wireChips();
 }
 
@@ -571,7 +687,9 @@ function group(name, description, rows, allNames) {
         <div class="song-artist">${escape(r.artists)}</div>
       </td>
       <td class="conf ${r.low_confidence ? 'low' : ''}">${r.confidence.toFixed(2)}</td>
-      <td class="reason">${escape(r.reason)}</td>
+      <td class="reason">${escape(r.reason)}
+        <span class="gap" data-video="${r.video_id}">${gapLabel(r.missing_groups)}</span>
+      </td>
       <td>
         <div class="chips" data-video="${r.video_id}">
           ${allNames.map((n) => `
@@ -592,6 +710,21 @@ function group(name, description, rows, allNames) {
         <tbody>${body}</tbody>
       </table>
     </div>`;
+}
+
+function gapLabel(groups) {
+  return groups?.length
+    ? `nothing from ${groups.map(escape).join(' or ')}`
+    : '';
+}
+
+/** Which groups this set of playlists leaves empty — recomputed after an edit
+ *  so the badge can never contradict the chips sitting next to it. */
+function missingGroupsFor(playlists) {
+  const data = state.review;
+  if (!data?.groups?.length) return [];
+  return data.groups.filter((g) =>
+    !data.buckets.some((b) => b.group === g && playlists.includes(b.name)));
 }
 
 function wireChips() {
@@ -616,6 +749,8 @@ function wireChips() {
             c.classList.toggle('on', playlists.includes(c.dataset.name));
           });
         });
+        const gaps = gapLabel(missingGroupsFor(playlists));
+        $$(`.gap[data-video="${videoId}"]`).forEach((el) => { el.innerHTML = gaps; });
       } catch (e) {
         chip.classList.toggle('on'); // roll back the visual change
         alert(`Could not save: ${e.message}`);
@@ -685,11 +820,19 @@ function renderSummary() {
     stat(s.skipped, 'already there'),
     stat(s.failed, 'failed'),
     stat(s.unassigned, 'matched nothing'),
+    ...(data.groups?.length ? [stat(s.incomplete, 'missing a group')] : []),
   ].join('');
 
+  let lastGroup = null;
   const groups = data.buckets.map((b) => {
+    let head = '';
+    if (data.groups?.length && b.group !== lastGroup) {
+      lastGroup = b.group;
+      head = `<h3 class="axis">${b.group ? escape(b.group) : 'Not in a group'}</h3>`;
+    }
+
     if (!b.added) {
-      return `<div class="bucket-group">
+      return `${head}<div class="bucket-group">
         <h4>${escape(b.name)} <span class="n">nothing added</span></h4>
         <div class="empty">${b.skipped
           ? `All ${b.skipped} matching songs were already in this playlist.`
@@ -708,7 +851,7 @@ function renderSummary() {
           r.overridden ? '<span class="by-hand">changed by hand</span>' : ''}</td>
       </tr>`).join('');
 
-    return `
+    return `${head}
       <div class="bucket-group">
         <h4>${escape(b.name)}
           <span class="n">${b.added} added</span>
@@ -741,12 +884,18 @@ function summaryMarkdown(data) {
     `- Already present, skipped: ${s.skipped}`,
     `- Failed writes: ${s.failed}`,
     `- Matched no playlist: ${s.unassigned}`,
+    ...(data.groups?.length ? [`- Missing a group: ${s.incomplete}`] : []),
     `- Songs classified: ${s.classified}`,
   ];
   if (data.backup_path) out.push(`- Backup: ${data.backup_path}`);
   out.push('');
 
+  let lastGroup = null;
   for (const b of data.buckets) {
+    if (data.groups?.length && b.group !== lastGroup) {
+      lastGroup = b.group;
+      out.push(`# ${b.group || 'Not in a group'}`, '');
+    }
     out.push(`## ${b.name} — ${b.added} added${b.skipped ? `, ${b.skipped} already there` : ''}`);
     if (b.description) out.push(`_${b.description}_`);
     out.push('');

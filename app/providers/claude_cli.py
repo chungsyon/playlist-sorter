@@ -36,7 +36,9 @@ class ClaudeCLIProvider(Provider):
     def available(self) -> bool:
         return settings.claude_enabled and shutil.which(self.cli) is not None
 
-    def generate_json(self, prompt: str) -> str:
+    def generate_json(self, prompt: str, schema: dict | None = None) -> str:
+        # No structured-output mode on the CLI; the prompt describes the shape.
+        del schema
         if not self.available():
             raise ProviderError(
                 f"`{self.cli}` not found on PATH, or CLAUDE_ENABLED is false."

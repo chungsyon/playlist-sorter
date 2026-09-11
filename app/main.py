@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import db, ytm
 from .config import ROOT, settings, update_env
 from .jobs import manager
-from .models import Bucket
+from .models import Bucket, group_names
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +60,7 @@ class BucketBody(BaseModel):
     playlist_id: str
     name: str
     description: str = ""
+    group: str = ""
 
 
 class JobBody(BaseModel):
@@ -239,7 +240,18 @@ def create_job(body: JobBody) -> dict:
         raise HTTPException(400, "A destination cannot be the source playlist.")
 
     buckets = [Bucket(playlist_id=b.playlist_id, name=b.name.strip(),
-                      description=b.description.strip()) for b in body.buckets]
+                      description=b.description.strip(),
+                      group=b.group.strip()) for b in body.buckets]
+
+    # A group with one playlist forces every song into it — that is a filter,
+    # not a choice, and it is almost always a mistake rather than an intent.
+    for name in group_names(buckets):
+        if sum(1 for b in buckets if b.group == name) < 2:
+            raise HTTPException(
+                400,
+                f'Group "{name}" has only one playlist. Every song would be sent '
+                f"there. Add another playlist to the group, or ungroup it.",
+            )
 
     state = manager.create(body.source_playlist_id, buckets)
     manager.start(state.job_id)
