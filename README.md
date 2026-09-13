@@ -111,6 +111,36 @@ uv run python -m app.doctor
 
 ---
 
+## Giving it to someone who doesn't use a terminal
+
+`./share.sh` builds a folder they can use without typing a command:
+
+```bash
+./share.sh                # -> ~/Desktop/PlaylistSorter.zip
+```
+
+They unzip it and double-click **Start Playlist Sorter.command**. The first
+start installs everything and takes a few minutes; later starts take seconds,
+and the browser opens on its own once the server is actually answering. A
+`START HERE.txt` walks them through getting their own Gemini key.
+
+Your OAuth client is copied into their `.env`, because it is the app's
+identity rather than your account — they still sign in as themselves. Add
+their Google address under *APIs & Services → OAuth consent screen → Test
+users* first, or the sign-in is refused.
+
+Everything else of yours stays here. `share.sh` builds the file list from
+`.gitignore`, so `browser.json`, `oauth.json`, your API keys, `data/` and
+`backups/` are excluded by the same rule that keeps them out of git — then it
+greps the built folder for your keys and refuses to zip if it finds one.
+
+macOS will likely block the first double-click as coming from an unidentified
+developer. Right-click → Open, or *System Settings → Privacy & Security →
+Open Anyway*. Once only. This is inherent to handing someone an unsigned
+script; signing it needs a paid Apple Developer account.
+
+---
+
 ## How it stays free
 
 Songs are classified **50 at a time**, not one per request. A 2,000-song playlist costs
@@ -183,6 +213,9 @@ app/
   list_models.py which Gemini models your key can reach
 web/             UI (no build step)
 setup.sh         one-command install
+share.sh         build a no-terminal copy for someone else
+Start Playlist Sorter.command
+                 what they double-click
 ```
 
 ---
