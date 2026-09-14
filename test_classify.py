@@ -10,7 +10,7 @@ still forcing the model to describe a song before it picks a playlist.
 
 from __future__ import annotations
 
-from app.classify import _raw_names, _reason_text, _validate
+from app.classify import NO_RESPONSE, _raw_names, _reason_text, _validate, classify_batch
 from app.enrich import ARTIST_SCOPE, _top_tags
 from app.models import Bucket, Track
 from app.providers.base import RESPONSE_SCHEMA, Provider, ProviderError, grouped_response_schema
@@ -155,6 +155,43 @@ def test_all_providers_failing_raises_the_pause_signal() -> None:
         pass
     else:
         raise AssertionError("expected AllProvidersExhausted")
+
+
+def test_skipped_songs_get_a_second_ask() -> None:
+    """Big batches lose songs — the model just stops writing entries. Those are
+    indistinguishable from unclassifiable ones by review time, so they get one
+    more ask, and only they do: a re-ask of the whole batch would cost a request
+    the daily cap may not have."""
+    buckets = [Bucket(playlist_id="1", name="Work Out"), Bucket(playlist_id="2", name="Chill")]
+    tracks = [Track(video_id=v, title=v) for v in ("a", "b", "c")]
+
+    # First reply covers a and c; b is missing. Second reply supplies b.
+    first = '[{"idx":0,"song":"x","playlists":["Work Out"],"confidence":0.9},' \
+            ' {"idx":2,"song":"z","playlists":["Chill"],"confidence":0.8}]'
+    second = '[{"idx":0,"song":"y","playlists":["Chill"],"confidence":0.7}]'
+
+    provider = _Canned("gemini", first, second)
+    out = classify_batch(ProviderRouter([provider]), tracks, buckets)
+
+    assert provider.calls == 2, provider.calls
+    assert [a.video_id for a in out] == ["a", "b", "c"]
+    assert out[1].playlists == ["Chill"], out[1].playlists     # the straggler, recovered
+    assert out[0].playlists == ["Work Out"]                     # first-pass answers kept
+    assert out[2].playlists == ["Chill"]
+
+    # Only the missing song is re-sent, not the whole batch.
+    assert all(a.reason != NO_RESPONSE for a in out)
+
+
+def test_a_wholly_empty_reply_is_not_re_asked() -> None:
+    """Nothing coming back is a failed batch, not stragglers — the router has
+    already spent its retries, so a re-ask would just burn another request."""
+    buckets = [Bucket(playlist_id="1", name="Work Out")]
+    tracks = [Track(video_id="a", title="A")]
+    provider = _Canned("gemini", "[]", "[]")
+    out = classify_batch(ProviderRouter([provider]), tracks, buckets)
+    assert provider.calls == 1, provider.calls
+    assert out[0].reason == NO_RESPONSE
 
 
 if __name__ == "__main__":

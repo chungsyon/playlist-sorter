@@ -177,6 +177,11 @@ Return a JSON array of objects with keys: idx, song, picks, confidence, reason."
 
 _OPTIONAL_KEY = "(optional)"
 
+# Recorded when the model's answer contains no entry for a song. Matched on
+# later to find the stragglers worth re-asking about, so the two places have to
+# agree on the exact wording.
+NO_RESPONSE = "No response from model for this song."
+
 
 def optional_key(buckets: list[Bucket]) -> str:
     """Where ungrouped picks go in the grouped response. Group names are free
@@ -236,14 +241,44 @@ def response_schema(buckets: list[Bucket]) -> dict | None:
 
 def classify_batch(router: ProviderRouter, tracks: list[Track],
                    buckets: list[Bucket]) -> list[Assignment]:
-    """Classify one batch. Raises AllProvidersExhausted upward so the job runner
-    can pause with its cursor intact."""
+    """Classify one batch, re-asking about any song the model passed over.
+
+    Raises AllProvidersExhausted upward so the job runner can pause with its
+    cursor intact.
+
+    Large batches lose songs. Not to truncation — that raises now — but to the
+    model simply not writing an entry for every index it was given, and the
+    bigger the batch the more it does it: around 4% of songs at 50 per request,
+    12% at 150. Those songs are indistinguishable from genuinely unclassifiable
+    ones by the time they reach review, so they are worth one more ask.
+
+    Re-asking about only the missing songs, rather than retrying the batch,
+    matters when the daily request cap is what limits the run: 135 stragglers
+    cost a single extra request instead of a second full batch, and the songs
+    that did come back keep the answers they already had.
+    """
     if not tracks:
         return []
 
+    assignments = _classify_once(router, tracks, buckets)
+
+    missing = [t for t, a in zip(tracks, assignments) if a.reason == NO_RESPONSE]
+    # The all-missing case is a failed batch, not a straggler problem, and the
+    # router has already spent its retries on it.
+    if missing and len(missing) < len(tracks):
+        log.info("Model skipped %d of %d songs; re-asking for those.",
+                 len(missing), len(tracks))
+        second = {a.video_id: a for a in _classify_once(router, missing, buckets)
+                  if a.reason != NO_RESPONSE}
+        assignments = [second.get(a.video_id, a) for a in assignments]
+
+    return assignments
+
+
+def _classify_once(router: ProviderRouter, tracks: list[Track],
+                   buckets: list[Bucket]) -> list[Assignment]:
     prompt = build_prompt(tracks, buckets)
     items, provider_name = router.generate_items(prompt, response_schema(buckets))
-
     return _validate(items, tracks, buckets, provider_name)
 
 
@@ -310,7 +345,7 @@ def _validate(items: list[dict], tracks: list[Track], buckets: list[Bucket],
             # confidence so it surfaces in review instead of vanishing.
             assignments.append(Assignment(
                 video_id=track.video_id, playlists=[], confidence=0.0,
-                reason="No response from model for this song.",
+                reason=NO_RESPONSE,
                 provider=provider_name,
             ))
             continue
