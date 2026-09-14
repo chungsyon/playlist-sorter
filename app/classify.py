@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from .models import Assignment, Bucket, Track, group_names
-from .providers import extract_json_array, grouped_response_schema
+from .providers import grouped_response_schema
 from .router import ProviderRouter
 
 log = logging.getLogger(__name__)
@@ -242,8 +242,7 @@ def classify_batch(router: ProviderRouter, tracks: list[Track],
         return []
 
     prompt = build_prompt(tracks, buckets)
-    raw, provider_name = router.generate_json(prompt, response_schema(buckets))
-    items = extract_json_array(raw)
+    items, provider_name = router.generate_items(prompt, response_schema(buckets))
 
     return _validate(items, tracks, buckets, provider_name)
 

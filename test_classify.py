@@ -13,7 +13,8 @@ from __future__ import annotations
 from app.classify import _raw_names, _reason_text, _validate
 from app.enrich import ARTIST_SCOPE, _top_tags
 from app.models import Bucket, Track
-from app.providers.base import RESPONSE_SCHEMA, grouped_response_schema
+from app.providers.base import RESPONSE_SCHEMA, Provider, ProviderError, grouped_response_schema
+from app.router import ProviderRouter
 
 
 def test_reason_carries_the_characterisation() -> None:
@@ -103,6 +104,57 @@ def test_validate_snaps_names_and_flags_dropped_songs() -> None:
 
     # The song the model skipped surfaces for review instead of vanishing.
     assert out[1].playlists == [] and out[1].confidence == 0.0
+
+
+class _Canned(Provider):
+    """A provider that hands back whatever text it was given."""
+
+    def __init__(self, name: str, *replies: str) -> None:
+        self.name = name
+        self.replies = list(replies)
+        self.calls = 0
+
+    def available(self) -> bool:
+        return True
+
+    def generate_json(self, prompt: str, schema: dict | None = None) -> str:
+        self.calls += 1
+        if not self.replies:
+            raise ProviderError("out of canned replies")
+        return self.replies.pop(0)
+
+
+def test_unparseable_reply_is_retried_not_fatal() -> None:
+    """A provider answering with broken JSON has not answered.
+
+    This killed a 2,111-song job at 1,500: parsing sat outside the router, so
+    one malformed batch raised straight past the retry and the failover that
+    exist precisely for this.
+    """
+    good = '[{"idx": 0, "song": "x", "playlists": [], "confidence": 0.5}]'
+
+    # Retried on the same provider.
+    flaky = _Canned("flaky", "{not json at all", good)
+    items, who = ProviderRouter([flaky]).generate_items("p")
+    assert who == "flaky" and items[0]["idx"] == 0
+    assert flaky.calls == 2, flaky.calls
+
+    # Failed over to the next provider when the first cannot be salvaged.
+    broken, backup = _Canned("broken", "{[", "}}"), _Canned("backup", good)
+    items, who = ProviderRouter([broken, backup]).generate_items("p")
+    assert who == "backup", who
+    assert broken.calls == 2, broken.calls
+
+
+def test_all_providers_failing_raises_the_pause_signal() -> None:
+    """Exhaustion must pause the job with its cursor intact, never crash it."""
+    from app.router import AllProvidersExhausted
+    try:
+        ProviderRouter([_Canned("a", "{["), _Canned("b", "nope")]).generate_items("p")
+    except AllProvidersExhausted:
+        pass
+    else:
+        raise AssertionError("expected AllProvidersExhausted")
 
 
 if __name__ == "__main__":
