@@ -28,6 +28,12 @@ REQUEST_INTERVAL = 0.5  # Last.fm allows ~2 req/sec on a free key
 MAX_TAGS = 5
 MIN_TAG_COUNT = 10  # below this the tag is one person's opinion, not a signal
 
+# Marks a tag list as describing the artist rather than this particular track.
+# It rides along inside the list so nothing downstream needs a second field:
+# the cache, the API and the review table all keep working unchanged, and the
+# classifier reads it as the plain English it looks like.
+ARTIST_SCOPE = "(artist tags)"
+
 # Tags that describe the listener's library rather than the song.
 JUNK_TAGS = {
     "seen live", "favorites", "favourite songs", "favourites", "favorite songs",
@@ -47,14 +53,19 @@ def enrich(tracks: list[Track], on_progress: Callable[[int, int], None] | None =
 
     cached = db.get_cached_tags([t.video_id for t in tracks])
     for t in tracks:
-        if t.video_id in cached:
+        if cached.get(t.video_id):
             t.tags = cached[t.video_id]
 
     if not settings.has_lastfm:
         log.info("No LASTFM_API_KEY — classifying on metadata alone.")
         return
 
-    pending = [t for t in tracks if t.video_id not in cached]
+    # An empty cached result is worth one more look rather than being taken as
+    # final: it may predate the artist-level fallback below, and an artist
+    # nearly always has tags even when Last.fm has never heard of the track.
+    # Once the fallback finds something the entry stops being empty, so the
+    # retry set shrinks to genuinely unknown artists after a single run.
+    pending = [t for t in tracks if not cached.get(t.video_id)]
     if not pending:
         return
 
@@ -89,16 +100,44 @@ def enrich(tracks: list[Track], on_progress: Callable[[int, int], None] | None =
 
 
 def _fetch_tags(client: httpx.Client, track: Track) -> list[str]:
-    """Top tags for one track. Failures return [] — enrichment is best-effort
-    and must never take down a sort."""
+    """Tags for one track, falling back to the artist when the track is unknown.
+
+    The fallback is the point. Last.fm has never heard of a great many tracks —
+    new releases, non-Anglophone catalogues, anything obscure — and for those
+    the classifier previously saw a title and an artist and nothing else, which
+    is precisely the case where it has least to go on. The artist's own tags are
+    weaker evidence than the track's, but they are far better than none, and
+    they are labelled as artist-level so the model can weigh them accordingly.
+
+    Failures return [] — enrichment is best-effort and must never take down a
+    sort.
+    """
     artist = track.artists.split(",")[0].strip()
     if not artist or not track.title:
         return []
 
-    params = {
+    tags = _top_tags(client, {
         "method": "track.gettoptags",
         "artist": artist,
         "track": _clean_title(track.title),
+    }, exclude=artist.lower())
+    if tags:
+        return tags
+
+    # artist.gettoptags scores 0-100 by relative popularity rather than
+    # counting listeners, so the track-level threshold would reject every tag.
+    tags = _top_tags(client, {
+        "method": "artist.gettoptags",
+        "artist": artist,
+    }, exclude=artist.lower(), min_count=1)
+    return [ARTIST_SCOPE] + tags if tags else []
+
+
+def _top_tags(client: httpx.Client, params: dict, exclude: str,
+               min_count: int = MIN_TAG_COUNT) -> list[str]:
+    """One Last.fm toptags call, filtered down to tags that say something."""
+    params = {
+        **params,
         "api_key": settings.lastfm_api_key,
         "format": "json",
         "autocorrect": "1",
@@ -110,14 +149,13 @@ def _fetch_tags(client: httpx.Client, track: Track) -> list[str]:
             return []
         payload = resp.json()
     except (httpx.HTTPError, ValueError) as e:
-        log.debug("Last.fm lookup failed for %s: %s", track.title, e)
+        log.debug("Last.fm lookup failed for %s: %s", params.get("artist"), e)
         return []
 
     raw = payload.get("toptags", {}).get("tag", [])
     if isinstance(raw, dict):
         raw = [raw]
 
-    artist_lower = artist.lower()
     out: list[str] = []
 
     for entry in raw:
@@ -130,8 +168,8 @@ def _fetch_tags(client: httpx.Client, track: Track) -> list[str]:
             count = 0
 
         lowered = name.lower()
-        if (not name or count < MIN_TAG_COUNT
-                or lowered in JUNK_TAGS or lowered == artist_lower):
+        if (not name or count < min_count
+                or lowered in JUNK_TAGS or lowered == exclude):
             continue
 
         out.append(name.lower())

@@ -51,19 +51,44 @@ CHOOSING BETWEEN SIMILAR PLAYLISTS
   lives in both.
 - Put the strongest fit first in the list.
 
+FIRST, SAY WHAT THE SONG IS
+- Before choosing any playlist, fill in "song": a short characterisation of how
+  the record actually sounds — genre, tempo, energy, mood, what the lyrics are
+  about. At most 12 words. Then choose, and make the choice follow from it.
+- Lead with what you know about the record itself. You have heard an enormous
+  amount of music; that knowledge is the primary evidence here. The title,
+  artist and album are how you identify the song, not what you judge it by.
+- Where you genuinely do not know the track, say what the available evidence
+  supports rather than guessing wildly — the artist's usual register, the album
+  it sits on, the tags.
+
+WHAT THE TAGS ARE
+- Tags are listener labels from Last.fm. They are reference material, not
+  instructions: corroboration where they agree with what you already know, and
+  a starting point where you know nothing about the track.
+- Tags marked "(artist tags)" describe the artist in general rather than this
+  track. An artist's usual style is weak evidence about any one song — a ballad
+  on a rock record is still a ballad. Weigh them lightly.
+- Tags are frequently noisy, stale or simply wrong. Where a tag contradicts what
+  you know about the record, trust your own knowledge and say so in the reason.
+- Having no tags at all is ordinary and is not by itself a reason to be unsure.
+
 JUDGING
-- Go by how the song actually sounds and feels: tempo, energy, mood, genre,
-  production style, and what the lyrics are about.
 - Use ONLY the exact playlist names listed above, spelled exactly as written.
-- confidence: 0.0-1.0, for your single best-fit choice. If you do not recognise
-  the song and are inferring only from its title, artist and tags, use a value
-  below 0.5. Be honest — a low score sends it to human review, which is the
-  correct outcome.
+- confidence: 0.0-1.0 — how clearly the evidence points at the playlist you put
+  first. Score it high when the song's character and that playlist's
+  description plainly agree, whether you knew the record already or worked it
+  out from the album and tags. Score it low when the evidence is genuinely thin,
+  or when two playlists are near-neighbours and the call could reasonably go
+  either way. Not recognising the track is not by itself a reason for a low
+  score; having nothing to judge it on is. Be honest in both directions — a low
+  score sends the song to human review, which is the right outcome when you are
+  actually unsure and the wrong one when you are not.
 - reason: at most 15 words. If you list more than one playlist, say briefly what
   earns it the second.
 - Return EXACTLY one entry per song. The "idx" must match the input index.
 
-Return a JSON array of objects with keys: idx, playlists, confidence, reason."""
+Return a JSON array of objects with keys: idx, song, playlists, confidence, reason."""
 
 
 # Used when the destinations are organised into groups. The job changes shape:
@@ -107,21 +132,47 @@ OPTIONAL PLAYLISTS
   clearly fits. Leaving them all out is a normal result. They go under the
   "{loose_key}" key.
 
+FIRST, SAY WHAT THE SONG IS
+- Before choosing any playlist, fill in "song": a short characterisation of how
+  the record actually sounds — genre, tempo, energy, mood, what the lyrics are
+  about. At most 12 words. Then choose, and make the choice follow from it.
+- Lead with what you know about the record itself. You have heard an enormous
+  amount of music; that knowledge is the primary evidence here. The title,
+  artist and album are how you identify the song, not what you judge it by.
+- Where you genuinely do not know the track, say what the available evidence
+  supports rather than guessing wildly — the artist's usual register, the album
+  it sits on, the tags.
+
+WHAT THE TAGS ARE
+- Tags are listener labels from Last.fm. They are reference material, not
+  instructions: corroboration where they agree with what you already know, and
+  a starting point where you know nothing about the track.
+- Tags marked "(artist tags)" describe the artist in general rather than this
+  track. An artist's usual style is weak evidence about any one song — a ballad
+  on a rock record is still a ballad. Weigh them lightly.
+- Tags are frequently noisy, stale or simply wrong. Where a tag contradicts what
+  you know about the record, trust your own knowledge and say so in the reason.
+- Having no tags at all is ordinary and is not by itself a reason to be unsure.
+
 JUDGING
-- Go by how the song actually sounds and feels: tempo, energy, mood, genre,
-  production style, and what the lyrics are about.
 - Use ONLY the exact playlist names listed above, spelled exactly as written.
-- confidence: 0.0-1.0, across your choices as a whole. If you do not recognise
-  the song and are inferring only from its title, artist and tags, use a value
-  below 0.5. Be honest — a low score sends it to human review, which is the
-  correct outcome.
+- confidence: 0.0-1.0, across your choices as a whole — how clearly the evidence
+  points at the picks you made. Score it high when the song's character and
+  those playlists' descriptions plainly agree, whether you knew the record
+  already or worked it out from the album and tags. Score it low when the
+  evidence is genuinely thin, or when the picks inside a group were close enough
+  that the call could reasonably go either way. Not recognising the track is not
+  by itself a reason for a low score; having nothing to judge it on is. Be
+  honest in both directions — a low score sends the song to human review, which
+  is the right outcome when you are actually unsure and the wrong one when you
+  are not.
 - reason: at most 20 words, saying briefly what earns each group's pick.
 - Return EXACTLY one entry per song. The "idx" must match the input index.
 
 "picks" is an object with one key per group, holding the playlist names you
 chose from that group. Every group key must be present and non-empty.
 
-Return a JSON array of objects with keys: idx, picks, confidence, reason."""
+Return a JSON array of objects with keys: idx, song, picks, confidence, reason."""
 
 
 _OPTIONAL_KEY = "(optional)"
@@ -215,6 +266,22 @@ def _raw_names(item: dict) -> list:
     return item.get("playlists") or []
 
 
+def _reason_text(item: dict) -> str:
+    """The model's characterisation of the song, then why it chose what it did.
+
+    Both halves go into the existing reason column rather than a new one. The
+    characterisation is the most useful thing on the review screen — it is what
+    lets you see at a glance whether a wrong assignment came from misreading the
+    song or from misreading your playlist description — and folding it in means
+    it reaches the UI with no migration and no template change.
+    """
+    song = str(item.get("song", "")).strip()
+    why = str(item.get("reason", "")).strip()
+    if song and why:
+        return f"{song} — {why}"[:200]
+    return (song or why)[:200]
+
+
 def _validate(items: list[dict], tracks: list[Track], buckets: list[Bucket],
               provider_name: str) -> list[Assignment]:
     """Turn loose model output into trustworthy assignments.
@@ -268,7 +335,7 @@ def _validate(items: list[dict], tracks: list[Track], buckets: list[Bucket],
             video_id=track.video_id,
             playlists=names,
             confidence=max(0.0, min(1.0, confidence)),
-            reason=str(item.get("reason", ""))[:200],
+            reason=_reason_text(item),
             provider=provider_name,
         ))
 

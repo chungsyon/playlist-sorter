@@ -24,7 +24,9 @@ class Track(BaseModel):
         if self.album:
             parts.append(self.album)
         if self.tags:
-            parts.append("tags: " + ", ".join(self.tags[:5]))
+            # Six, not five: an artist-level list spends its first slot on the
+            # "(artist tags)" marker, which would otherwise crowd out a real tag.
+            parts.append("tags: " + ", ".join(self.tags[:6]))
         return " | ".join(p for p in parts if p)
 
 

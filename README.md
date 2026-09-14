@@ -141,6 +141,39 @@ script; signing it needs a paid Apple Developer account.
 
 ---
 
+## How the model decides
+
+The model is the sorter. Nothing else assigns a playlist — there is no rule
+table, no keyword matching, and Last.fm never routes a song on its own.
+
+For every song it first writes down what the record actually is — genre, tempo,
+energy, mood, what the lyrics are about — and only then picks playlists to match
+that description. The order is enforced by the response schema rather than
+merely requested, because a model that names a playlist first will justify it
+afterwards. That characterisation is what you see in the **why** column on the
+Review screen, so a wrong assignment tells you whether it misheard the song or
+misread your playlist description.
+
+**Tags are reference material, not instructions.** Last.fm tags corroborate what
+the model already knows and give it a foothold on tracks it doesn't recognise,
+but where a tag contradicts the record the model is told to trust itself and say
+so. Tags shown as `(artist tags)` describe the artist in general rather than that
+track — weaker evidence, and labelled so the model weighs it accordingly.
+
+Confidence measures how clearly the evidence points at the chosen playlist, not
+whether the model recognised the song. Working a track out from its artist and
+album is a legitimate route to a confident answer; having nothing to go on is
+not. Honest scores in both directions are what make the review queue worth
+reading.
+
+> Last.fm has no track-level tags for a great many songs — 89% of one 2,000-song
+> library, mostly non-Anglophone and independent releases. Those songs fall back
+> to the artist's tags. On 48 songs that the old pipeline had flagged for review,
+> all of them tagless, this took mean confidence from 0.43 to 0.77 and left none
+> below the review threshold.
+
+---
+
 ## How it stays free
 
 Songs are classified **50 at a time**, not one per request. A 2,000-song playlist costs
@@ -212,6 +245,7 @@ app/
   doctor.py      preflight check
   list_models.py which Gemini models your key can reach
 web/             UI (no build step)
+test_classify.py offline checks — uv run python test_classify.py
 setup.sh         one-command install
 share.sh         build a no-terminal copy for someone else
 Start Playlist Sorter.command

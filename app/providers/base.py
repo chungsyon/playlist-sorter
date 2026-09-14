@@ -16,6 +16,12 @@ class ProviderError(Exception):
     """Something else went wrong — malformed output, crash, timeout."""
 
 
+# "song" comes before the picks on purpose, and propertyOrdering makes that
+# ordering real rather than decorative: the model writes what the record *is*
+# and then chooses in light of it, instead of emitting a playlist name and
+# reverse-engineering a justification. Same fields, markedly steadier answers.
+_SONG_FIELD = {"type": "string"}
+
 # Shape both providers must return: one entry per song in the batch.
 RESPONSE_SCHEMA = {
     "type": "array",
@@ -23,11 +29,13 @@ RESPONSE_SCHEMA = {
         "type": "object",
         "properties": {
             "idx": {"type": "integer"},
+            "song": _SONG_FIELD,
             "playlists": {"type": "array", "items": {"type": "string"}},
             "confidence": {"type": "number"},
             "reason": {"type": "string"},
         },
-        "required": ["idx", "playlists", "confidence"],
+        "propertyOrdering": ["idx", "song", "playlists", "confidence", "reason"],
+        "required": ["idx", "song", "playlists", "confidence"],
     },
 }
 
@@ -56,15 +64,18 @@ def grouped_response_schema(groups: list[str],
             "type": "object",
             "properties": {
                 "idx": {"type": "integer"},
+                "song": _SONG_FIELD,
                 "picks": {
                     "type": "object",
                     "properties": slots,
+                    "propertyOrdering": list(slots),
                     "required": list(groups),
                 },
                 "confidence": {"type": "number"},
                 "reason": {"type": "string"},
             },
-            "required": ["idx", "picks", "confidence"],
+            "propertyOrdering": ["idx", "song", "picks", "confidence", "reason"],
+            "required": ["idx", "song", "picks", "confidence"],
         },
     }
 
