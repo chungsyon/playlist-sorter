@@ -17,6 +17,11 @@ from .base import RESPONSE_SCHEMA, Provider, ProviderError, QuotaExhausted
 
 log = logging.getLogger(__name__)
 
+# gemini-3.5-flash and -flash-lite both top out here. Thinking tokens are
+# drawn from the same budget, so asking for the maximum leaves the most room
+# for the answer itself.
+_MAX_OUTPUT_TOKENS = 65536
+
 # Substrings that mean "out of quota" rather than "broken".
 _QUOTA_MARKERS = (
     "resource_exhausted", "quota", "rate limit", "ratelimit",
@@ -74,6 +79,12 @@ class GeminiProvider(Provider):
                     response_mime_type="application/json",
                     response_schema=schema or RESPONSE_SCHEMA,
                     temperature=0.2,  # classification wants consistency, not flair
+                    # The default output cap is far below what a large batch
+                    # needs — 110 songs cost about 13k tokens to answer — and
+                    # overrunning it truncates mid-array instead of erroring.
+                    # This is the model's own ceiling, so it costs nothing to
+                    # ask for and removes batch size as a hidden constraint.
+                    max_output_tokens=_MAX_OUTPUT_TOKENS,
                     # We pass no tools; disabling AFC silences a spurious SDK warning.
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
                         disable=True
@@ -85,6 +96,18 @@ class GeminiProvider(Provider):
             if any(m in msg for m in _QUOTA_MARKERS):
                 raise QuotaExhausted(f"Gemini quota exhausted: {e}") from e
             raise ProviderError(f"Gemini call failed: {e}") from e
+
+        # A truncated answer still parses: the array simply stops early, and
+        # every song past the cut is recorded as "no response from model" with
+        # zero confidence. That is a silent way to lose most of a batch to the
+        # review queue, so treat it as the failure it is and let the router
+        # retry rather than accepting a partial answer as a complete one.
+        finish = getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else None
+        if finish is not None and str(finish).endswith("MAX_TOKENS"):
+            raise ProviderError(
+                f"Gemini response hit the {_MAX_OUTPUT_TOKENS}-token output cap "
+                f"and was truncated. Lower BATCH_SIZE in .env."
+            )
 
         text = getattr(resp, "text", None)
         if not text:
