@@ -1,5 +1,9 @@
 # Secrets — never commit these
+# The wildcard matters: a stray .env.bak or .env.local is just as sensitive as
+# .env itself, and share.sh packages anything git does not ignore.
 .env
+.env.*
+!.env.example
 browser.json
 oauth.json
 
